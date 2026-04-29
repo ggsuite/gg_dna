@@ -4,57 +4,31 @@
 // Use of this source code is governed by terms that can be
 // found in the LICENSE file in the root of this package.
 
-import 'dart:convert';
 import 'dart:io';
-
-import 'package:gg_console_colors/gg_console_colors.dart';
-import 'package:gg_capture_print/gg_capture_print.dart';
 
 import 'package:test/test.dart';
 
 import '../../bin/gg_dna.dart';
 
 void main() {
-  group('bin/gg_dna.dart', () {
-    // #########################################################################
-
-    test('should be executable', () async {
-      // Execute bin/gg_dna.dart and check if it prints help
-      final result = await Process.run(
-        './bin/gg_dna.dart',
-        ['my-command'],
-        stdoutEncoding: utf8,
-        stderrEncoding: utf8,
-      );
-
-      final expectedMessages = [
-        'Invalid argument(s): Option',
-        red('input'),
-        'is mandatory.',
-      ];
-
-      final stdout = result.stdout as String;
-
-      for (final msg in expectedMessages) {
-        expect(stdout, contains(msg));
-      }
-    });
-  });
-
-  // ###########################################################################
   group('run(args, log)', () {
-    group('with args=[--param, value]', () {
-      test('should print "value"', () async {
-        // Execute bin/gg_dna.dart and check if it prints "value"
+    test('runs install-skills against an empty source folder', () async {
+      final tmp = await Directory.systemTemp.createTemp('gg_dna_bin_test_');
+      try {
         final messages = <String>[];
-        await run(args: ['my-command', '--input', '5'], ggLog: messages.add);
+        await run(
+          args: ['install-skills', '--source', tmp.path, '--all'],
+          ggLog: messages.add,
+        );
 
-        final expectedMessages = ['Running my-command with param 5'];
-
-        for (final msg in expectedMessages) {
-          expect(hasLog(messages, msg), isTrue);
-        }
-      });
+        expect(
+          messages.any((m) => m.contains('No skills found')),
+          isTrue,
+          reason: 'messages: $messages',
+        );
+      } finally {
+        await tmp.delete(recursive: true);
+      }
     });
   });
 }

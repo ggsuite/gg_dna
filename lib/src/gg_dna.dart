@@ -6,14 +6,12 @@
 
 import 'package:args/command_runner.dart';
 import './commands/install_skills.dart';
-import './commands/my_command.dart';
 import 'package:gg_log/gg_log.dart';
 
 /// The command line interface for GgDna
 class GgDna extends Command<dynamic> {
   /// Constructor
   GgDna({required this.ggLog}) {
-    addSubcommand(MyCommand(ggLog: ggLog));
     addSubcommand(InstallSkills(ggLog: ggLog));
   }
 

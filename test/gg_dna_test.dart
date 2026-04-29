@@ -29,13 +29,27 @@ void main() {
         'Description goes here.',
       )..addCommand(ggDna);
 
-      test('should allow to run the code from command line', () async {
-        await capturePrint(
-          ggLog: messages.add,
-          code: () async =>
-              await runner.run(['ggDna', 'my-command', '--input', 'foo']),
-        );
-        expect(messages, contains('Running my-command with param foo'));
+      test('should allow to run a subcommand from the command line', () async {
+        final tmp = await Directory.systemTemp.createTemp('gg_dna_test_');
+        try {
+          await capturePrint(
+            ggLog: messages.add,
+            code: () async => await runner.run([
+              'ggDna',
+              'install-skills',
+              '--source',
+              tmp.path,
+              '--all',
+            ]),
+          );
+          expect(
+            messages.any((m) => m.contains('No skills found')),
+            isTrue,
+            reason: 'messages: $messages',
+          );
+        } finally {
+          await tmp.delete(recursive: true);
+        }
       });
 
       // .......................................................................
