@@ -10,6 +10,17 @@ import 'package:args/command_runner.dart';
 import 'package:gg_log/gg_log.dart';
 import 'package:path/path.dart' as p;
 
+/// Reads a single line of user input in response to [prompt].
+///
+/// Returns `null` if no input is available (e.g. closed stdin).
+typedef PromptUser = String? Function(String prompt);
+
+/// Returns the directory the package is installed in.
+///
+/// Used to locate the bundled `claude/skills/` folder when no explicit
+/// `--source` is given.
+typedef PackageRootResolver = String Function();
+
 /// Installs all Claude Code skills shipped with this repository into the
 /// user's local Claude environment (`~/.claude/skills/<name>`).
 ///
@@ -18,27 +29,29 @@ import 'package:path/path.dart' as p;
 /// are overwritten when the user confirms.
 class InstallSkills extends Command<dynamic> {
   /// Constructor.
+  ///
+  /// [promptUser], [homeOverride] and [packageRootResolver] exist primarily
+  /// to make the command testable; the defaults wire them to the real
+  /// stdin/environment/script-path.
   InstallSkills({
     required this.ggLog,
-    Stdin? stdinOverride,
+    PromptUser? promptUser,
     String? homeOverride,
-    String? packageRootOverride,
-  })  : _stdin = stdinOverride ?? stdin,
+    PackageRootResolver? packageRootResolver,
+  })  : _promptUser = promptUser ?? _defaultPrompt,
         _homeOverride = homeOverride,
-        _packageRootOverride = packageRootOverride {
+        _packageRootResolver = packageRootResolver ?? _defaultPackageRoot {
     argParser
       ..addOption(
         'source',
         abbr: 's',
-        help:
-            'Folder containing the skills to install. Defaults to '
+        help: 'Folder containing the skills to install. Defaults to '
             '<package-root>/claude/skills.',
       )
       ..addOption(
         'dest',
         abbr: 'd',
-        help:
-            'Destination folder. Defaults to ~/.claude/skills on the current '
+        help: 'Destination folder. Defaults to ~/.claude/skills on the current '
             'user.',
       )
       ..addFlag(
@@ -52,9 +65,9 @@ class InstallSkills extends Command<dynamic> {
   /// The log function.
   final GgLog ggLog;
 
-  final Stdin _stdin;
+  final PromptUser _promptUser;
   final String? _homeOverride;
-  final String? _packageRootOverride;
+  final PackageRootResolver _packageRootResolver;
 
   @override
   final name = 'install-skills';
@@ -66,8 +79,8 @@ class InstallSkills extends Command<dynamic> {
 
   @override
   Future<void> run() async {
-    final source = _resolveSource(argResults!['source'] as String?);
-    final dest = _resolveDest(argResults!['dest'] as String?);
+    final source = resolveSource(argResults!['source'] as String?);
+    final dest = resolveDest(argResults!['dest'] as String?);
     final installAll = argResults!['all'] as bool;
 
     if (!source.existsSync()) {
@@ -77,7 +90,7 @@ class InstallSkills extends Command<dynamic> {
       );
     }
 
-    final skills = _discoverSkills(source);
+    final skills = discoverSkills(source);
     if (skills.isEmpty) {
       ggLog('No skills found in ${source.path}.');
       return;
@@ -94,7 +107,7 @@ class InstallSkills extends Command<dynamic> {
 
       final shouldInstall = installAll
           ? true
-          : _ask(
+          : ask(
               exists
                   ? 'Skill "$skillName" already installed at '
                       '${targetDir.path}. Overwrite? (y/N): '
@@ -110,59 +123,53 @@ class InstallSkills extends Command<dynamic> {
       if (exists) {
         targetDir.deleteSync(recursive: true);
       }
-      _copyDirectory(skill, targetDir);
+      copyDirectory(skill, targetDir);
       ggLog('  + installed $skillName -> ${targetDir.path}');
       installed++;
     }
 
-    ggLog(
-      'Done. Installed $installed skill(s), skipped $skipped.',
-    );
+    ggLog('Done. Installed $installed skill(s), skipped $skipped.');
   }
 
   // ---------------------------------------------------------------------------
-  Directory _resolveSource(String? raw) {
+  /// Resolves the `--source` option to a [Directory], falling back to the
+  /// package's bundled `claude/skills/` folder when no value was given.
+  Directory resolveSource(String? raw) {
     if (raw != null && raw.isNotEmpty) {
       return Directory(raw);
     }
-    final root = _packageRootOverride ?? _packageRoot();
-    return Directory(p.join(root, 'claude', 'skills'));
+    return Directory(p.join(_packageRootResolver(), 'claude', 'skills'));
   }
 
-  Directory _resolveDest(String? raw) {
+  /// Resolves the `--dest` option to a [Directory], falling back to
+  /// `<home>/.claude/skills` when no value was given.
+  Directory resolveDest(String? raw) {
     if (raw != null && raw.isNotEmpty) {
       return Directory(raw);
     }
-    final home = _homeOverride ?? _homeDir();
-    return Directory(p.join(home, '.claude', 'skills'));
+    return Directory(p.join(_homeOverride ?? homeDir(), '.claude', 'skills'));
   }
 
-  String _homeDir() {
+  /// Returns the user's home directory based on `HOME` (Unix) or
+  /// `USERPROFILE` (Windows).
+  ///
+  /// Throws a [StateError] when neither variable is set.
+  static String homeDir() {
     final env = Platform.environment;
     final home = env['HOME'] ?? env['USERPROFILE'];
     if (home == null || home.isEmpty) {
+      // coverage:ignore-start
       throw StateError(
         'Cannot determine home directory: neither HOME nor USERPROFILE is set.',
       );
+      // coverage:ignore-end
     }
     return home;
   }
 
-  String _packageRoot() {
-    // When run via `dart run` or `dart pub global run`, the script lives at
-    // <package-root>/bin/gg_dna.dart. Walk up to find a folder containing
-    // pubspec.yaml.
-    var dir = File.fromUri(Platform.script).parent;
-    for (var i = 0; i < 5; i++) {
-      if (File(p.join(dir.path, 'pubspec.yaml')).existsSync()) {
-        return dir.path;
-      }
-      dir = dir.parent;
-    }
-    return Directory.current.path;
-  }
-
-  List<Directory> _discoverSkills(Directory source) {
+  /// Lists all subdirectories of [source] that contain a `SKILL.md` file,
+  /// sorted alphabetically by name.
+  static List<Directory> discoverSkills(Directory source) {
     final result = <Directory>[];
     for (final entity in source.listSync()) {
       if (entity is Directory &&
@@ -174,15 +181,18 @@ class InstallSkills extends Command<dynamic> {
     return result;
   }
 
-  bool _ask(String prompt) {
-    stdout.write(prompt);
-    final line = _stdin.readLineSync();
+  /// Asks the user [prompt] and returns `true` for affirmative answers
+  /// (`y`, `yes`, `j`, `ja`; case-insensitive).
+  bool ask(String prompt) {
+    final line = _promptUser(prompt);
     if (line == null) return false;
     final answer = line.trim().toLowerCase();
     return answer == 'y' || answer == 'yes' || answer == 'j' || answer == 'ja';
   }
 
-  void _copyDirectory(Directory source, Directory target) {
+  /// Recursively copies the contents of [source] into [target], creating
+  /// missing intermediate directories as needed.
+  static void copyDirectory(Directory source, Directory target) {
     target.createSync(recursive: true);
     for (final entity in source.listSync(recursive: true, followLinks: false)) {
       final relative = p.relative(entity.path, from: source.path);
@@ -195,4 +205,26 @@ class InstallSkills extends Command<dynamic> {
       }
     }
   }
+
+  // coverage:ignore-start
+  // ---------------------------------------------------------------------------
+  static String? _defaultPrompt(String prompt) {
+    stdout.write(prompt);
+    return stdin.readLineSync();
+  }
+
+  static String _defaultPackageRoot() {
+    // When run via `dart run` or `dart pub global run`, the script lives at
+    // <package-root>/bin/gg_dna.dart. Walk up to find a folder containing
+    // pubspec.yaml.
+    var dir = File.fromUri(Platform.script).parent;
+    for (var i = 0; i < 5; i++) {
+      if (File(p.join(dir.path, 'pubspec.yaml')).existsSync()) {
+        return dir.path;
+      }
+      dir = dir.parent;
+    }
+    return Directory.current.path;
+  }
+  // coverage:ignore-end
 }
