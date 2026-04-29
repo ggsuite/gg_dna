@@ -25,7 +25,12 @@ dart pub global activate kd
 
 ### 1. In den Kidney-Workspace wechseln
 
-Der Kidney-Workspace ist der Ordner, der `tickets/` und `.master/` enthält. Auf vielen Maschinen liegt er unter `P:\workspace_grace_cloud`, der Pfad kann aber abweichen — wenn unklar: nachfragen.
+Der Kidney-Workspace ist der Ordner, der ein `.master/`-Unterverzeichnis und üblicherweise einen `tickets/`-Ordner enthält. Der Pfad ist von Maschine zu Maschine verschieden — frage den Nutzer entweder explizit danach, oder finde den Workspace selbst:
+
+- Mit `Glob` nach `**/.master` suchen (in plausiblen Eltern-Ordnern wie `P:\`, dem Home-Verzeichnis, Dev-Ordnern), oder
+- den Nutzer kurz nach dem Pfad fragen.
+
+Sobald der Workspace bekannt ist:
 
 ```bash
 cd <kidney-workspace>
