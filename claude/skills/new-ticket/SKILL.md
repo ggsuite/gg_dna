@@ -27,8 +27,8 @@ dart pub global activate kd
 
 Der Kidney-Workspace ist der Ordner, der ein `.master/`-Unterverzeichnis und üblicherweise einen `tickets/`-Ordner enthält. Der Pfad ist von Maschine zu Maschine verschieden — frage den Nutzer entweder explizit danach, oder finde den Workspace selbst:
 
-- Mit `Glob` nach `**/.master` suchen (in plausiblen Eltern-Ordnern wie `P:\`, dem Home-Verzeichnis, Dev-Ordnern), oder
-- den Nutzer kurz nach dem Pfad fragen.
+- den Nutzer kurz nach dem Pfad fragen, oder
+- mit `Glob` nach `**/.master` in plausiblen Dev-Ordnern suchen (Home-Verzeichnis, übliche Workspace-Roots auf der jeweiligen Plattform).
 
 Sobald der Workspace bekannt ist:
 
@@ -114,7 +114,7 @@ cd <pfad-zum-grace-cloud-repo>
 git pull
 ```
 
-Wenn der Pfad zum Repo unklar ist: nachfragen. Üblich ist ein gemeinsamer Eltern-Ordner für alle Grace-Cloud-Repos (auf vielen Maschinen `P:\grace_cloud`).
+Wenn der Pfad zum Repo unklar ist: nachfragen. Grace-Cloud-Repos liegen üblicherweise nebeneinander in einem gemeinsamen Eltern-Ordner; der konkrete Pfad ist maschinenabhängig und muss vom Nutzer kommen oder durch Suche (z. B. `Glob` nach Geschwister-Repos mit Prefixes `gg_`, `kidney_`, `ds_`) gefunden werden.
 
 ### 2. Branch-Name und Beschreibung klären
 

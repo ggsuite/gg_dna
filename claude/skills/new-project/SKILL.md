@@ -9,12 +9,12 @@ Du legst neue Grace-Cloud-Repositories an. Halte dich strikt an diese Reihenfolg
 
 ## 1. Zielordner ermitteln
 
-Grace-Cloud-Repositories liegen üblicherweise alle nebeneinander in einem gemeinsamen Eltern-Ordner (z. B. `P:\grace_cloud` auf vielen Maschinen). Liste den vermuteten Ordner mit `Glob` oder `ls`, um:
+Grace-Cloud-Repositories liegen üblicherweise alle nebeneinander in einem gemeinsamen Eltern-Ordner. Der Pfad ist von Maschine zu Maschine verschieden — **frage den Nutzer**, in welchem Ordner die Grace-Cloud-Repos liegen, oder finde den Ordner selbst (mit `Glob` nach Geschwister-Verzeichnissen suchen, die Prefixes `gg_`, `kidney_` oder `ds_` enthalten).
+
+Sobald der Eltern-Ordner bekannt ist, liste seinen Inhalt mit `Glob`/`ls`, um:
 
 - zu verifizieren, dass der Pfad existiert,
 - bestehende Geschwister-Repos zu sehen (Namens-Konventionen, Prefixes wie `gg_`, `kidney_`, `ds_`).
-
-Existiert der Standard-Pfad nicht oder ist nicht eindeutig: **frage den Nutzer nach dem korrekten Eltern-Ordner.**
 
 ## 2. Bestätigung beim Nutzer einholen
 
