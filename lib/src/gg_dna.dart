@@ -5,6 +5,7 @@
 // found in the LICENSE file in the root of this package.
 
 import 'package:args/command_runner.dart';
+import './commands/install_skills.dart';
 import './commands/my_command.dart';
 import 'package:gg_log/gg_log.dart';
 
@@ -13,6 +14,7 @@ class GgDna extends Command<dynamic> {
   /// Constructor
   GgDna({required this.ggLog}) {
     addSubcommand(MyCommand(ggLog: ggLog));
+    addSubcommand(InstallSkills(ggLog: ggLog));
   }
 
   /// The log function
