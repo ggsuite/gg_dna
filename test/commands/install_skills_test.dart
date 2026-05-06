@@ -128,6 +128,57 @@ void main() {
         },
       );
 
+      test('--only restricts installs to the named skills', () async {
+        final src = Directory(p.join(tmp.path, 'src'))..createSync();
+        makeSkill(src, 'alpha');
+        makeSkill(src, 'beta');
+        makeSkill(src, 'gamma');
+        final dest = Directory(p.join(tmp.path, 'dest'));
+
+        final cmd = InstallSkills(ggLog: messages.add, promptUser: prompter);
+        final runner = makeRunner(cmd);
+        await runner.run([
+          'install-skills',
+          '--source',
+          src.path,
+          '--dest',
+          dest.path,
+          '--only',
+          'alpha,gamma',
+        ]);
+
+        expect(prompts, isEmpty);
+        expect(
+          File(p.join(dest.path, 'alpha', 'SKILL.md')).existsSync(),
+          isTrue,
+        );
+        expect(Directory(p.join(dest.path, 'beta')).existsSync(), isFalse);
+        expect(
+          File(p.join(dest.path, 'gamma', 'SKILL.md')).existsSync(),
+          isTrue,
+        );
+      });
+
+      test('--only with no matches reports nothing to install', () async {
+        final src = Directory(p.join(tmp.path, 'src'))..createSync();
+        makeSkill(src, 'alpha');
+        final dest = Directory(p.join(tmp.path, 'dest'));
+
+        final cmd = InstallSkills(ggLog: messages.add);
+        final runner = makeRunner(cmd);
+        await runner.run([
+          'install-skills',
+          '--source',
+          src.path,
+          '--dest',
+          dest.path,
+          '--only',
+          'missing',
+        ]);
+
+        expect(messages.any((m) => m.contains('No skills found')), isTrue);
+      });
+
       test('prompts and installs when answer is "y"', () async {
         final src = Directory(p.join(tmp.path, 'src'))..createSync();
         makeSkill(src, 'alpha');
@@ -258,53 +309,59 @@ void main() {
       test('returns the explicit folder when --source is given', () {
         final cmd = InstallSkills(
           ggLog: messages.add,
-          packageRootResolver: () => 'unused',
+          cwdResolver: () => 'unused',
         );
         final dir = cmd.resolveSource('/explicit/path');
         expect(dir.path, '/explicit/path');
       });
 
       test(
-        'falls back to <package-root>/claude/skills when --source is omitted',
+        'falls back to <cwd>/dna/claude/skills when --source is omitted',
         () {
           final cmd = InstallSkills(
             ggLog: messages.add,
-            packageRootResolver: () => '/pkg',
+            cwdResolver: () => '/repo',
           );
           final dir = cmd.resolveSource(null);
-          expect(dir.path, p.join('/pkg', 'claude', 'skills'));
+          expect(dir.path, p.join('/repo', 'dna', 'claude', 'skills'));
         },
       );
 
       test('treats an empty --source value as missing', () {
         final cmd = InstallSkills(
           ggLog: messages.add,
-          packageRootResolver: () => '/pkg',
+          cwdResolver: () => '/repo',
         );
         final dir = cmd.resolveSource('');
-        expect(dir.path, p.join('/pkg', 'claude', 'skills'));
+        expect(dir.path, p.join('/repo', 'dna', 'claude', 'skills'));
       });
     });
 
     // -------------------------------------------------------------------------
     group('resolveDest()', () {
       test('returns the explicit folder when --dest is given', () {
-        final cmd = InstallSkills(ggLog: messages.add, homeOverride: '/home');
+        final cmd = InstallSkills(
+          ggLog: messages.add,
+          cwdResolver: () => '/repo',
+        );
         expect(cmd.resolveDest('/explicit').path, '/explicit');
       });
 
       test(
-        'falls back to <home>/.claude/skills when --dest is omitted',
+        'falls back to <cwd>/.claude/skills when --dest is omitted',
         () {
-          final cmd = InstallSkills(ggLog: messages.add, homeOverride: '/h');
+          final cmd = InstallSkills(
+            ggLog: messages.add,
+            cwdResolver: () => '/repo',
+          );
           expect(
             cmd.resolveDest(null).path,
-            p.join('/h', '.claude', 'skills'),
+            p.join('/repo', '.claude', 'skills'),
           );
         },
       );
 
-      test('uses the real home directory when no override is provided', () {
+      test('uses the real working directory when no override is provided', () {
         final cmd = InstallSkills(ggLog: messages.add);
         final dest = cmd.resolveDest(null).path;
         expect(dest, contains('.claude'));
@@ -312,19 +369,14 @@ void main() {
       });
 
       test('treats an empty --dest value as missing', () {
-        final cmd = InstallSkills(ggLog: messages.add, homeOverride: '/h');
+        final cmd = InstallSkills(
+          ggLog: messages.add,
+          cwdResolver: () => '/repo',
+        );
         expect(
           cmd.resolveDest('').path,
-          p.join('/h', '.claude', 'skills'),
+          p.join('/repo', '.claude', 'skills'),
         );
-      });
-    });
-
-    // -------------------------------------------------------------------------
-    group('homeDir()', () {
-      test('returns HOME or USERPROFILE on every supported platform', () {
-        // The test environment always sets at least one of these.
-        expect(InstallSkills.homeDir(), isNotEmpty);
       });
     });
 

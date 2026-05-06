@@ -15,50 +15,54 @@ import 'package:path/path.dart' as p;
 /// Returns `null` if no input is available (e.g. closed stdin).
 typedef PromptUser = String? Function(String prompt);
 
-/// Returns the directory the package is installed in.
-///
-/// Used to locate the bundled `claude/skills/` folder when no explicit
-/// `--source` is given.
-typedef PackageRootResolver = String Function();
+/// Returns the working directory the command should resolve its
+/// `--source`/`--dest` defaults against.
+typedef CwdResolver = String Function();
 
-/// Installs all Claude Code skills shipped with this repository into the
-/// user's local Claude environment (`~/.claude/skills/<name>`).
+/// Installs Claude Code skills bundled in the consumer's `dna/` folder into
+/// the consumer's project-level `.claude/skills/` directory.
+///
+/// Default source: `<cwd>/dna/claude/skills` — i.e. the output of
+/// `gg_dna sync`. Default destination: `<cwd>/.claude/skills`.
 ///
 /// For every skill found under `<source>/<name>/SKILL.md` the user is asked
 /// for confirmation before it is copied. Existing skills with the same name
-/// are overwritten when the user confirms.
+/// are overwritten when the user confirms. `--all` skips prompts; `--only`
+/// restricts to a comma-separated subset (also non-interactive).
 class InstallSkills extends Command<dynamic> {
   /// Constructor.
   ///
-  /// [promptUser], [homeOverride] and [packageRootResolver] exist primarily
-  /// to make the command testable; the defaults wire them to the real
-  /// stdin/environment/script-path.
+  /// [promptUser] and [cwdResolver] exist primarily to make the command
+  /// testable; the defaults wire them to the real stdin / current directory.
   InstallSkills({
     required this.ggLog,
     PromptUser? promptUser,
-    String? homeOverride,
-    PackageRootResolver? packageRootResolver,
+    CwdResolver? cwdResolver,
   })  : _promptUser = promptUser ?? _defaultPrompt,
-        _homeOverride = homeOverride,
-        _packageRootResolver = packageRootResolver ?? _defaultPackageRoot {
+        _cwdResolver = cwdResolver ?? _defaultCwd {
     argParser
       ..addOption(
         'source',
         abbr: 's',
         help: 'Folder containing the skills to install. Defaults to '
-            '<package-root>/claude/skills.',
+            '<cwd>/dna/claude/skills.',
       )
       ..addOption(
         'dest',
         abbr: 'd',
-        help: 'Destination folder. Defaults to ~/.claude/skills on the current '
-            'user.',
+        help: 'Destination folder. Defaults to <cwd>/.claude/skills.',
       )
       ..addFlag(
         'all',
         abbr: 'a',
         help: 'Install every skill without asking.',
         negatable: false,
+      )
+      ..addMultiOption(
+        'only',
+        abbr: 'o',
+        help: 'Install only the named skills (skill folder names). '
+            'Repeat or comma-separate. Bypasses prompts.',
       );
   }
 
@@ -66,22 +70,24 @@ class InstallSkills extends Command<dynamic> {
   final GgLog ggLog;
 
   final PromptUser _promptUser;
-  final String? _homeOverride;
-  final PackageRootResolver _packageRootResolver;
+  final CwdResolver _cwdResolver;
 
   @override
   final name = 'install-skills';
 
   @override
   final description =
-      'Install Claude Code skills bundled with gg_dna into the local Claude '
-      'environment (~/.claude/skills).';
+      'Install Claude Code skills from <cwd>/dna/claude/skills into the '
+      "project's <cwd>/.claude/skills directory.";
 
   @override
   Future<void> run() async {
     final source = resolveSource(argResults!['source'] as String?);
     final dest = resolveDest(argResults!['dest'] as String?);
     final installAll = argResults!['all'] as bool;
+    final only = (argResults!['only'] as List<String>)
+        .where((s) => s.trim().isNotEmpty)
+        .toSet();
 
     if (!source.existsSync()) {
       throw UsageException(
@@ -90,7 +96,12 @@ class InstallSkills extends Command<dynamic> {
       );
     }
 
-    final skills = discoverSkills(source);
+    var skills = discoverSkills(source);
+    if (only.isNotEmpty) {
+      skills = skills
+          .where((d) => only.contains(p.basename(d.path)))
+          .toList(growable: false);
+    }
     if (skills.isEmpty) {
       ggLog('No skills found in ${source.path}.');
       return;
@@ -98,6 +109,7 @@ class InstallSkills extends Command<dynamic> {
 
     dest.createSync(recursive: true);
 
+    final nonInteractive = installAll || only.isNotEmpty;
     var installed = 0;
     var skipped = 0;
     for (final skill in skills) {
@@ -105,7 +117,7 @@ class InstallSkills extends Command<dynamic> {
       final targetDir = Directory(p.join(dest.path, skillName));
       final exists = targetDir.existsSync();
 
-      final shouldInstall = installAll
+      final shouldInstall = nonInteractive
           ? true
           : ask(
               exists
@@ -132,39 +144,22 @@ class InstallSkills extends Command<dynamic> {
   }
 
   // ---------------------------------------------------------------------------
-  /// Resolves the `--source` option to a [Directory], falling back to the
-  /// package's bundled `claude/skills/` folder when no value was given.
+  /// Resolves the `--source` option to a [Directory], falling back to
+  /// `<cwd>/dna/claude/skills` when no value was given.
   Directory resolveSource(String? raw) {
     if (raw != null && raw.isNotEmpty) {
       return Directory(raw);
     }
-    return Directory(p.join(_packageRootResolver(), 'claude', 'skills'));
+    return Directory(p.join(_cwdResolver(), 'dna', 'claude', 'skills'));
   }
 
   /// Resolves the `--dest` option to a [Directory], falling back to
-  /// `<home>/.claude/skills` when no value was given.
+  /// `<cwd>/.claude/skills` when no value was given.
   Directory resolveDest(String? raw) {
     if (raw != null && raw.isNotEmpty) {
       return Directory(raw);
     }
-    return Directory(p.join(_homeOverride ?? homeDir(), '.claude', 'skills'));
-  }
-
-  /// Returns the user's home directory based on `HOME` (Unix) or
-  /// `USERPROFILE` (Windows).
-  ///
-  /// Throws a [StateError] when neither variable is set.
-  static String homeDir() {
-    final env = Platform.environment;
-    final home = env['HOME'] ?? env['USERPROFILE'];
-    if (home == null || home.isEmpty) {
-      // coverage:ignore-start
-      throw StateError(
-        'Cannot determine home directory: neither HOME nor USERPROFILE is set.',
-      );
-      // coverage:ignore-end
-    }
-    return home;
+    return Directory(p.join(_cwdResolver(), '.claude', 'skills'));
   }
 
   /// Lists all subdirectories of [source] that contain a `SKILL.md` file,
@@ -213,18 +208,6 @@ class InstallSkills extends Command<dynamic> {
     return stdin.readLineSync();
   }
 
-  static String _defaultPackageRoot() {
-    // When run via `dart run` or `dart pub global run`, the script lives at
-    // <package-root>/bin/gg_dna.dart. Walk up to find a folder containing
-    // pubspec.yaml.
-    var dir = File.fromUri(Platform.script).parent;
-    for (var i = 0; i < 5; i++) {
-      if (File(p.join(dir.path, 'pubspec.yaml')).existsSync()) {
-        return dir.path;
-      }
-      dir = dir.parent;
-    }
-    return Directory.current.path;
-  }
+  static String _defaultCwd() => Directory.current.path;
   // coverage:ignore-end
 }

@@ -10,29 +10,23 @@ import 'package:args/command_runner.dart';
 import 'package:gg_log/gg_log.dart';
 import 'package:path/path.dart' as p;
 
-/// Returns the directory the package is installed in.
-typedef PackageRootResolver = String Function();
-
-/// Copies the convention documents bundled in `gg_dna/claude/conventions/`
-/// into a target repo's `.gg/claude/` folder and ensures the target's
-/// `CLAUDE.md` references them through `@import`-lines inside a delimited
-/// block.
+/// Copies the convention documents shipped under
+/// `<target>/dna/claude/conventions/` into `<target>/.claude/conventions/`
+/// and ensures the target's `CLAUDE.md` references them through
+/// `@import`-lines inside a delimited block.
 ///
 /// When the command is executed inside a Kidney workspace (a directory
 /// containing `.master/`, walked up from the current working directory),
 /// the workspace root is used as the target instead of the current directory.
 class ApplyConventions extends Command<dynamic> {
   /// Constructor.
-  ApplyConventions({
-    required this.ggLog,
-    PackageRootResolver? packageRootResolver,
-  }) : _packageRootResolver = packageRootResolver ?? _defaultPackageRoot {
+  ApplyConventions({required this.ggLog}) {
     argParser
       ..addOption(
         'source',
         abbr: 's',
         help: 'Folder containing the convention markdown files. Defaults to '
-            '<package-root>/claude/conventions.',
+            '<target>/dna/claude/conventions.',
       )
       ..addOption(
         'target',
@@ -40,6 +34,12 @@ class ApplyConventions extends Command<dynamic> {
         help: 'Target repo or workspace folder. Defaults to the current '
             'directory; if executed inside a Kidney workspace, the workspace '
             'root is used instead.',
+      )
+      ..addMultiOption(
+        'only',
+        abbr: 'o',
+        help: 'Apply only the named convention files (basename, e.g. '
+            '"code-conventions.md"). Repeat or comma-separate.',
       )
       ..addFlag(
         'check',
@@ -53,26 +53,30 @@ class ApplyConventions extends Command<dynamic> {
   /// The log function.
   final GgLog ggLog;
 
-  final PackageRootResolver _packageRootResolver;
-
   /// Marker that opens the managed `CLAUDE.md` block.
   static const String startMarker = '<!-- gg_dna:conventions:start';
 
   /// Marker that closes the managed `CLAUDE.md` block.
   static const String endMarker = '<!-- gg_dna:conventions:end -->';
 
+  /// Path prefix used inside `CLAUDE.md` `@`-imports for managed conventions.
+  static const String importPrefix = '.claude/conventions';
+
   @override
   final name = 'apply-conventions';
 
   @override
-  final description =
-      'Copy Grace Cloud convention docs into <target>/.gg/claude and reference '
-      'them via @import-lines in <target>/CLAUDE.md.';
+  final description = 'Copy Grace Cloud convention docs from '
+      '<target>/dna/claude/conventions into <target>/.claude/conventions and '
+      'reference them via @import-lines in <target>/CLAUDE.md.';
 
   @override
   Future<void> run() async {
-    final source = _resolveSource(argResults!['source'] as String?);
     final target = _resolveTarget(argResults!['target'] as String?);
+    final source = _resolveSource(argResults!['source'] as String?, target);
+    final only = (argResults!['only'] as List<String>)
+        .where((s) => s.trim().isNotEmpty)
+        .toSet();
     final checkOnly = argResults!['check'] as bool;
 
     if (!source.existsSync()) {
@@ -82,15 +86,20 @@ class ApplyConventions extends Command<dynamic> {
       );
     }
 
-    final docs = discoverConventions(source);
+    var docs = discoverConventions(source);
+    if (only.isNotEmpty) {
+      docs = docs
+          .where((f) => only.contains(p.basename(f.path)))
+          .toList(growable: false);
+    }
     if (docs.isEmpty) {
       throw UsageException(
-        'No convention markdown files found in ${source.path}.',
+        'No matching convention markdown files found in ${source.path}.',
         usage,
       );
     }
 
-    final destDir = Directory(p.join(target.path, '.gg', 'claude'));
+    final destDir = Directory(p.join(target.path, '.claude', 'conventions'));
     final claudeMd = File(p.join(target.path, 'CLAUDE.md'));
     final today = _today();
     final desiredBlock = buildBlock(docs.map((f) => p.basename(f.path)), today);
@@ -164,11 +173,12 @@ class ApplyConventions extends Command<dynamic> {
   }
 
   /// Builds the managed `CLAUDE.md` block referencing each [filename] under
-  /// `.gg/claude/`. The block is tagged with [version] for downstream tooling.
+  /// `.claude/conventions/`. The block is tagged with [version] for downstream
+  /// tooling.
   static String buildBlock(Iterable<String> filenames, String version) {
     final lines = <String>[
       '$startMarker v=$version -->',
-      ...filenames.map((name) => '@.gg/claude/$name'),
+      ...filenames.map((name) => '@$importPrefix/$name'),
       endMarker,
     ];
     return lines.join('\n');
@@ -201,12 +211,12 @@ class ApplyConventions extends Command<dynamic> {
   // Private
   // ===========================================================================
 
-  Directory _resolveSource(String? raw) {
+  Directory _resolveSource(String? raw, Directory target) {
     if (raw != null && raw.isNotEmpty) {
       return Directory(raw);
     }
     return Directory(
-      p.join(_packageRootResolver(), 'claude', 'conventions'),
+      p.join(target.path, 'dna', 'claude', 'conventions'),
     );
   }
 
@@ -270,19 +280,6 @@ class ApplyConventions extends Command<dynamic> {
       'Conventions out of date — run `apply-conventions` to fix.',
     );
   }
-
-  // coverage:ignore-start
-  static String _defaultPackageRoot() {
-    var dir = File.fromUri(Platform.script).parent;
-    for (var i = 0; i < 5; i++) {
-      if (File(p.join(dir.path, 'pubspec.yaml')).existsSync()) {
-        return dir.path;
-      }
-      dir = dir.parent;
-    }
-    return Directory.current.path;
-  }
-  // coverage:ignore-end
 
   static String _today() {
     final now = DateTime.now();

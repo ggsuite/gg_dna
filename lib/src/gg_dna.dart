@@ -7,6 +7,7 @@
 import 'package:args/command_runner.dart';
 import './commands/apply_conventions.dart';
 import './commands/install_skills.dart';
+import './commands/sync.dart';
 import 'package:gg_log/gg_log.dart';
 
 /// The command line interface for GgDna
@@ -15,6 +16,7 @@ class GgDna extends Command<dynamic> {
   GgDna({required this.ggLog}) {
     addSubcommand(InstallSkills(ggLog: ggLog));
     addSubcommand(ApplyConventions(ggLog: ggLog));
+    addSubcommand(Sync(ggLog: ggLog));
   }
 
   /// The log function

@@ -13,17 +13,16 @@ import 'package:test/test.dart';
 
 void main() {
   late Directory tmp;
-  late Directory pkgRoot;
-  late Directory source;
   late Directory target;
+  late Directory source;
   late List<String> messages;
 
   setUp(() {
     tmp = Directory.systemTemp.createTempSync('apply_conventions_test_');
-    pkgRoot = Directory(p.join(tmp.path, 'pkg'))..createSync();
-    source = Directory(p.join(pkgRoot.path, 'claude', 'conventions'))
-      ..createSync(recursive: true);
     target = Directory(p.join(tmp.path, 'target'))..createSync();
+    // Default source lives under <target>/dna/claude/conventions.
+    source = Directory(p.join(target.path, 'dna', 'claude', 'conventions'))
+      ..createSync(recursive: true);
     messages = <String>[];
   });
 
@@ -38,12 +37,7 @@ void main() {
     File(p.join(source.path, name)).writeAsStringSync(body);
   }
 
-  ApplyConventions makeCmd() {
-    return ApplyConventions(
-      ggLog: messages.add,
-      packageRootResolver: () => pkgRoot.path,
-    );
-  }
+  ApplyConventions makeCmd() => ApplyConventions(ggLog: messages.add);
 
   CommandRunner<dynamic> makeRunner(ApplyConventions cmd) {
     return CommandRunner<dynamic>('test', 'test')..addCommand(cmd);
@@ -66,7 +60,6 @@ void main() {
       });
 
       test('throws when no markdown files are present in source', () async {
-        // Empty source folder — no .md files.
         await expectLater(
           makeRunner(makeCmd()).run([
             'apply-conventions',
@@ -89,7 +82,8 @@ void main() {
             target.path,
           ]);
 
-          final destDir = Directory(p.join(target.path, '.gg', 'claude'));
+          final destDir =
+              Directory(p.join(target.path, '.claude', 'conventions'));
           expect(
             File(p.join(destDir.path, 'code-conventions.md'))
                 .readAsStringSync(),
@@ -103,12 +97,50 @@ void main() {
 
           final claudeMd =
               File(p.join(target.path, 'CLAUDE.md')).readAsStringSync();
-          expect(claudeMd, contains('@.gg/claude/code-conventions.md'));
-          expect(claudeMd, contains('@.gg/claude/test-conventions.md'));
+          expect(
+            claudeMd,
+            contains('@.claude/conventions/code-conventions.md'),
+          );
+          expect(
+            claudeMd,
+            contains('@.claude/conventions/test-conventions.md'),
+          );
           expect(claudeMd, contains(ApplyConventions.startMarker));
           expect(claudeMd, contains(ApplyConventions.endMarker));
         },
       );
+
+      test('--only restricts the applied conventions', () async {
+        writeDoc('code-conventions.md', '# code');
+        writeDoc('test-conventions.md', '# test');
+
+        await makeRunner(makeCmd()).run([
+          'apply-conventions',
+          '--target',
+          target.path,
+          '--only',
+          'code-conventions.md',
+        ]);
+
+        final destDir =
+            Directory(p.join(target.path, '.claude', 'conventions'));
+        expect(
+          File(p.join(destDir.path, 'code-conventions.md')).existsSync(),
+          isTrue,
+        );
+        expect(
+          File(p.join(destDir.path, 'test-conventions.md')).existsSync(),
+          isFalse,
+        );
+
+        final claudeMd =
+            File(p.join(target.path, 'CLAUDE.md')).readAsStringSync();
+        expect(claudeMd, contains('@.claude/conventions/code-conventions.md'));
+        expect(
+          claudeMd.contains('@.claude/conventions/test-conventions.md'),
+          isFalse,
+        );
+      });
 
       test(
         'preserves existing CLAUDE.md content outside the managed block',
@@ -128,7 +160,10 @@ void main() {
               File(p.join(target.path, 'CLAUDE.md')).readAsStringSync();
           expect(claudeMd, contains('# Project notes'));
           expect(claudeMd, contains('Project-specific guidance here.'));
-          expect(claudeMd, contains('@.gg/claude/code-conventions.md'));
+          expect(
+            claudeMd,
+            contains('@.claude/conventions/code-conventions.md'),
+          );
         },
       );
 
@@ -139,7 +174,7 @@ void main() {
           File(p.join(target.path, 'CLAUDE.md')).writeAsStringSync(
             '# Project\n\n'
             '${ApplyConventions.startMarker} v=2024-01-01 -->\n'
-            '@.gg/claude/old.md\n'
+            '@.claude/conventions/old.md\n'
             '${ApplyConventions.endMarker}\n'
             '\nFooter\n',
           );
@@ -155,10 +190,13 @@ void main() {
           expect(claudeMd, contains('# Project'));
           expect(claudeMd, contains('Footer'));
           expect(
-            claudeMd.indexOf('@.gg/claude/code-conventions.md') > 0,
+            claudeMd.indexOf('@.claude/conventions/code-conventions.md') > 0,
             isTrue,
           );
-          expect(claudeMd.contains('@.gg/claude/old.md'), isFalse);
+          expect(
+            claudeMd.contains('@.claude/conventions/old.md'),
+            isFalse,
+          );
           // Only one start marker should remain.
           final firstStart = claudeMd.indexOf(ApplyConventions.startMarker);
           final lastStart = claudeMd.lastIndexOf(ApplyConventions.startMarker);
@@ -193,26 +231,34 @@ void main() {
       test(
         'targets the workspace root when run from a Kidney workspace ticket',
         () async {
-          writeDoc('code-conventions.md', '# code');
-          // Build a fake workspace at <tmp>/workspace with a ticket folder.
+          // Build a fake workspace at <tmp>/workspace with a ticket folder
+          // that contains its own dna/ source for conventions.
           final workspace = Directory(p.join(tmp.path, 'workspace'))
             ..createSync();
           Directory(p.join(workspace.path, '.master')).createSync();
+          // Place dna/claude/conventions under the workspace (target).
+          final wsSource = Directory(
+            p.join(workspace.path, 'dna', 'claude', 'conventions'),
+          )..createSync(recursive: true);
+          File(p.join(wsSource.path, 'code-conventions.md'))
+              .writeAsStringSync('# code');
           final ticket = Directory(
             p.join(workspace.path, 'tickets', 'ticket-1'),
           )..createSync(recursive: true);
 
+          // Explicit --target: the ticket gets the conventions when its own
+          // dna/ exists. Add one for that scenario:
+          final ticketSource = Directory(
+            p.join(ticket.path, 'dna', 'claude', 'conventions'),
+          )..createSync(recursive: true);
+          File(p.join(ticketSource.path, 'code-conventions.md'))
+              .writeAsStringSync('# code');
+
           await makeRunner(makeCmd()).run([
             'apply-conventions',
-            // Pretend we are inside the ticket folder by passing it as
-            // --target. The Kidney detection runs against --target only when
-            // it is omitted; this test exercises the explicit target path.
             '--target',
             ticket.path,
           ]);
-
-          // Explicit --target wins: the ticket gets the conventions, not the
-          // workspace.
           expect(
             File(p.join(ticket.path, 'CLAUDE.md')).existsSync(),
             isTrue,
@@ -234,7 +280,12 @@ void main() {
           );
           expect(
             File(
-              p.join(workspace.path, '.gg', 'claude', 'code-conventions.md'),
+              p.join(
+                workspace.path,
+                '.claude',
+                'conventions',
+                'code-conventions.md',
+              ),
             ).existsSync(),
             isTrue,
           );
@@ -244,8 +295,14 @@ void main() {
       test(
         'falls back to the current directory when no workspace is found',
         () async {
-          writeDoc('code-conventions.md', '# code');
           final standalone = Directory(p.join(tmp.path, 'plain'))..createSync();
+          // Place dna/ source under the standalone target.
+          final standaloneSource = Directory(
+            p.join(standalone.path, 'dna', 'claude', 'conventions'),
+          )..createSync(recursive: true);
+          File(p.join(standaloneSource.path, 'code-conventions.md'))
+              .writeAsStringSync('# code');
+
           final originalCwd = Directory.current;
           try {
             Directory.current = standalone;
@@ -277,7 +334,7 @@ void main() {
 
         expect(
           File(
-            p.join(target.path, '.gg', 'claude', 'extra.md'),
+            p.join(target.path, '.claude', 'conventions', 'extra.md'),
           ).readAsStringSync(),
           '# extra',
         );
@@ -345,7 +402,7 @@ void main() {
             '--target',
             target.path,
           ]);
-          // Wipe CLAUDE.md but keep .gg/claude copies.
+          // Wipe CLAUDE.md but keep .claude/conventions copies.
           File(p.join(target.path, 'CLAUDE.md')).writeAsStringSync('');
           await expectLater(
             makeRunner(makeCmd()).run([
@@ -374,11 +431,6 @@ void main() {
       });
 
       test('does not return a path inside the start directory', () {
-        // Construct an isolated chain under tmp without any `.master/` in
-        // tmp itself or its descendants. The function may walk up to a real
-        // ancestor of tmp (e.g. the developer's machine) and may find a
-        // workspace there, but it must never report a directory inside our
-        // synthetic chain.
         final isolated = Directory(p.join(tmp.path, 'isolated', 'deep'))
           ..createSync(recursive: true);
         final found = ApplyConventions.findKidneyWorkspaceRoot(isolated);
@@ -415,8 +467,8 @@ void main() {
           block,
           equals(
             '${ApplyConventions.startMarker} v=2026-04-29 -->\n'
-            '@.gg/claude/code-conventions.md\n'
-            '@.gg/claude/test-conventions.md\n'
+            '@.claude/conventions/code-conventions.md\n'
+            '@.claude/conventions/test-conventions.md\n'
             '${ApplyConventions.endMarker}',
           ),
         );
@@ -426,7 +478,7 @@ void main() {
     // -------------------------------------------------------------------------
     group('upsertBlock()', () {
       const block = '<!-- gg_dna:conventions:start v=2026 -->\n'
-          '@.gg/claude/foo.md\n'
+          '@.claude/conventions/foo.md\n'
           '<!-- gg_dna:conventions:end -->';
 
       test('appends the block to non-empty content', () {
@@ -449,7 +501,7 @@ void main() {
         final result = ApplyConventions.upsertBlock(initial, block);
         expect(result, contains('# A'));
         expect(result, contains('# B'));
-        expect(result, contains('@.gg/claude/foo.md'));
+        expect(result, contains('@.claude/conventions/foo.md'));
         expect(result, isNot(contains('old line')));
       });
 

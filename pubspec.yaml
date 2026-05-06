@@ -13,6 +13,7 @@ dependencies:
   gg_console_colors: ^2.1.5
   gg_log: ^1.0.6
   gg_process: ^1.1.6
+  interact: ^2.2.0
   path: ^1.9.0
 
 dev_dependencies:
