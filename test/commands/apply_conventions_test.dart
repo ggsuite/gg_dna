@@ -20,8 +20,8 @@ void main() {
   setUp(() {
     tmp = Directory.systemTemp.createTempSync('apply_conventions_test_');
     target = Directory(p.join(tmp.path, 'target'))..createSync();
-    // Default source lives under <target>/dna/claude/conventions.
-    source = Directory(p.join(target.path, 'dna', 'claude', 'conventions'))
+    // Default source lives under <target>/dna/agents/conventions.
+    source = Directory(p.join(target.path, 'dna', 'agents', 'conventions'))
       ..createSync(recursive: true);
     messages = <String>[];
   });
@@ -236,9 +236,9 @@ void main() {
           final workspace = Directory(p.join(tmp.path, 'workspace'))
             ..createSync();
           Directory(p.join(workspace.path, '.master')).createSync();
-          // Place dna/claude/conventions under the workspace (target).
+          // Place dna/agents/conventions under the workspace (target).
           final wsSource = Directory(
-            p.join(workspace.path, 'dna', 'claude', 'conventions'),
+            p.join(workspace.path, 'dna', 'agents', 'conventions'),
           )..createSync(recursive: true);
           File(p.join(wsSource.path, 'code-conventions.md'))
               .writeAsStringSync('# code');
@@ -249,7 +249,7 @@ void main() {
           // Explicit --target: the ticket gets the conventions when its own
           // dna/ exists. Add one for that scenario:
           final ticketSource = Directory(
-            p.join(ticket.path, 'dna', 'claude', 'conventions'),
+            p.join(ticket.path, 'dna', 'agents', 'conventions'),
           )..createSync(recursive: true);
           File(p.join(ticketSource.path, 'code-conventions.md'))
               .writeAsStringSync('# code');
@@ -298,7 +298,7 @@ void main() {
           final standalone = Directory(p.join(tmp.path, 'plain'))..createSync();
           // Place dna/ source under the standalone target.
           final standaloneSource = Directory(
-            p.join(standalone.path, 'dna', 'claude', 'conventions'),
+            p.join(standalone.path, 'dna', 'agents', 'conventions'),
           )..createSync(recursive: true);
           File(p.join(standaloneSource.path, 'code-conventions.md'))
               .writeAsStringSync('# code');

@@ -82,15 +82,15 @@ class Sync extends Command<dynamic> {
   final YesNoSelector _selector;
 
   /// Folders copied by default when `--include` is not provided.
-  static const List<String> defaultIncludes = ['guides', 'scripts', 'claude'];
+  static const List<String> defaultIncludes = ['guides', 'scripts', 'agents'];
 
-  /// Subdirectory inside `<target>/dna/claude/skills` discovered for the
+  /// Subdirectory inside `<target>/dna/agents/skills` discovered for the
   /// install-skills prompt phase.
-  static const String _dnaSkillsRel = 'dna/claude/skills';
+  static const String _dnaSkillsRel = 'dna/agents/skills';
 
-  /// Subdirectory inside `<target>/dna/claude/conventions` discovered for
+  /// Subdirectory inside `<target>/dna/agents/conventions` discovered for
   /// the apply-conventions prompt phase.
-  static const String _dnaConventionsRel = 'dna/claude/conventions';
+  static const String _dnaConventionsRel = 'dna/agents/conventions';
 
   @override
   final name = 'sync';

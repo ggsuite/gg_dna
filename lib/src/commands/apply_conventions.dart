@@ -11,7 +11,7 @@ import 'package:gg_log/gg_log.dart';
 import 'package:path/path.dart' as p;
 
 /// Copies the convention documents shipped under
-/// `<target>/dna/claude/conventions/` into `<target>/.claude/conventions/`
+/// `<target>/dna/agents/conventions/` into `<target>/.claude/conventions/`
 /// and ensures the target's `CLAUDE.md` references them through
 /// `@import`-lines inside a delimited block.
 ///
@@ -26,7 +26,7 @@ class ApplyConventions extends Command<dynamic> {
         'source',
         abbr: 's',
         help: 'Folder containing the convention markdown files. Defaults to '
-            '<target>/dna/claude/conventions.',
+            '<target>/dna/agents/conventions.',
       )
       ..addOption(
         'target',
@@ -67,7 +67,7 @@ class ApplyConventions extends Command<dynamic> {
 
   @override
   final description = 'Copy Grace Cloud convention docs from '
-      '<target>/dna/claude/conventions into <target>/.claude/conventions and '
+      '<target>/dna/agents/conventions into <target>/.claude/conventions and '
       'reference them via @import-lines in <target>/CLAUDE.md.';
 
   @override
@@ -216,7 +216,7 @@ class ApplyConventions extends Command<dynamic> {
       return Directory(raw);
     }
     return Directory(
-      p.join(target.path, 'dna', 'claude', 'conventions'),
+      p.join(target.path, 'dna', 'agents', 'conventions'),
     );
   }
 

@@ -316,14 +316,14 @@ void main() {
       });
 
       test(
-        'falls back to <cwd>/dna/claude/skills when --source is omitted',
+        'falls back to <cwd>/dna/agents/skills when --source is omitted',
         () {
           final cmd = InstallSkills(
             ggLog: messages.add,
             cwdResolver: () => '/repo',
           );
           final dir = cmd.resolveSource(null);
-          expect(dir.path, p.join('/repo', 'dna', 'claude', 'skills'));
+          expect(dir.path, p.join('/repo', 'dna', 'agents', 'skills'));
         },
       );
 
@@ -333,7 +333,7 @@ void main() {
           cwdResolver: () => '/repo',
         );
         final dir = cmd.resolveSource('');
-        expect(dir.path, p.join('/repo', 'dna', 'claude', 'skills'));
+        expect(dir.path, p.join('/repo', 'dna', 'agents', 'skills'));
       });
     });
 

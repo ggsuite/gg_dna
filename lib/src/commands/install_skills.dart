@@ -22,7 +22,7 @@ typedef CwdResolver = String Function();
 /// Installs Claude Code skills bundled in the consumer's `dna/` folder into
 /// the consumer's project-level `.claude/skills/` directory.
 ///
-/// Default source: `<cwd>/dna/claude/skills` — i.e. the output of
+/// Default source: `<cwd>/dna/agents/skills` — i.e. the output of
 /// `gg_dna sync`. Default destination: `<cwd>/.claude/skills`.
 ///
 /// For every skill found under `<source>/<name>/SKILL.md` the user is asked
@@ -45,7 +45,7 @@ class InstallSkills extends Command<dynamic> {
         'source',
         abbr: 's',
         help: 'Folder containing the skills to install. Defaults to '
-            '<cwd>/dna/claude/skills.',
+            '<cwd>/dna/agents/skills.',
       )
       ..addOption(
         'dest',
@@ -77,7 +77,7 @@ class InstallSkills extends Command<dynamic> {
 
   @override
   final description =
-      'Install Claude Code skills from <cwd>/dna/claude/skills into the '
+      'Install Claude Code skills from <cwd>/dna/agents/skills into the '
       "project's <cwd>/.claude/skills directory.";
 
   @override
@@ -145,12 +145,12 @@ class InstallSkills extends Command<dynamic> {
 
   // ---------------------------------------------------------------------------
   /// Resolves the `--source` option to a [Directory], falling back to
-  /// `<cwd>/dna/claude/skills` when no value was given.
+  /// `<cwd>/dna/agents/skills` when no value was given.
   Directory resolveSource(String? raw) {
     if (raw != null && raw.isNotEmpty) {
       return Directory(raw);
     }
-    return Directory(p.join(_cwdResolver(), 'dna', 'claude', 'skills'));
+    return Directory(p.join(_cwdResolver(), 'dna', 'agents', 'skills'));
   }
 
   /// Resolves the `--dest` option to a [Directory], falling back to

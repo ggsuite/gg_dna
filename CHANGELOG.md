@@ -11,3 +11,7 @@
 - Add install.bat script and ignore .aicode in .gitignore
 - Add workflow and commit discipline guides for gg-kidney and rljson
 - Add init skill guide for generating project-aware CLAUDE.md
+
+### Changed
+
+- migrate claude/ configs to agents/, update references throughout

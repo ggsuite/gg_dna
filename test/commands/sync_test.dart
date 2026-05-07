@@ -98,7 +98,7 @@ void main() {
 
     test('reports skipped includes that are absent in source', () async {
       writeFile(p.join(pkgRoot.path, 'guides', 'a.md'), 'A');
-      // 'scripts' and 'claude' are missing in pkgRoot.
+      // 'scripts' and 'agents' are missing in pkgRoot.
 
       final cmd = makeCmd();
       final runner = makeRunner(cmd);
@@ -119,7 +119,7 @@ void main() {
         () async {
       writeFile(p.join(pkgRoot.path, 'guides', 'a.md'), 'A');
       writeFile(p.join(pkgRoot.path, 'scripts', 'run.sh'), 'echo hi');
-      writeFile(p.join(pkgRoot.path, 'claude', 'sub', 'b.md'), 'B');
+      writeFile(p.join(pkgRoot.path, 'agents', 'sub', 'b.md'), 'B');
 
       final cmd = makeCmd();
       final runner = makeRunner(cmd);
@@ -140,7 +140,7 @@ void main() {
         'echo hi',
       );
       expect(
-        File(p.join(target.path, 'dna', 'claude', 'sub', 'b.md'))
+        File(p.join(target.path, 'dna', 'agents', 'sub', 'b.md'))
             .readAsStringSync(),
         'B',
       );
@@ -267,8 +267,8 @@ void main() {
     });
 
     test('prompts per skill and installs only the selected ones', () async {
-      // Bundled skills under <pkg>/claude/skills.
-      final skillsSrc = Directory(p.join(pkgRoot.path, 'claude', 'skills'))
+      // Bundled skills under <pkg>/agents/skills.
+      final skillsSrc = Directory(p.join(pkgRoot.path, 'agents', 'skills'))
         ..createSync(recursive: true);
       writeSkillIn(skillsSrc, 'new-project');
       writeSkillIn(skillsSrc, 'new-ticket');
@@ -286,12 +286,12 @@ void main() {
         '--target',
         target.path,
         '--include',
-        'claude',
+        'agents',
       ]);
 
       // dna/ populated
       expect(
-        Directory(p.join(target.path, 'dna', 'claude', 'skills', 'new-project'))
+        Directory(p.join(target.path, 'dna', 'agents', 'skills', 'new-project'))
             .existsSync(),
         isTrue,
       );
@@ -328,7 +328,7 @@ void main() {
 
     test('prompts per convention and applies only the selected ones', () async {
       final convSrc = Directory(
-        p.join(pkgRoot.path, 'claude', 'conventions'),
+        p.join(pkgRoot.path, 'agents', 'conventions'),
       )..createSync(recursive: true);
       File(p.join(convSrc.path, 'code-conventions.md'))
           .writeAsStringSync('# code');
@@ -345,7 +345,7 @@ void main() {
         '--target',
         target.path,
         '--include',
-        'claude',
+        'agents',
       ]);
 
       final destDir = Directory(p.join(target.path, '.claude', 'conventions'));
@@ -373,7 +373,7 @@ void main() {
 
     test('logs "no skills selected" when user says no to every prompt',
         () async {
-      final skillsSrc = Directory(p.join(pkgRoot.path, 'claude', 'skills'))
+      final skillsSrc = Directory(p.join(pkgRoot.path, 'agents', 'skills'))
         ..createSync(recursive: true);
       writeSkillIn(skillsSrc, 'alpha');
       // Default selector returns false for everything (no answers configured).
@@ -385,7 +385,7 @@ void main() {
         '--target',
         target.path,
         '--include',
-        'claude',
+        'agents',
       ]);
 
       expect(
@@ -400,7 +400,7 @@ void main() {
 
     test('logs "no conventions selected" when user says no to every prompt',
         () async {
-      final convSrc = Directory(p.join(pkgRoot.path, 'claude', 'conventions'))
+      final convSrc = Directory(p.join(pkgRoot.path, 'agents', 'conventions'))
         ..createSync(recursive: true);
       File(p.join(convSrc.path, 'code-conventions.md'))
           .writeAsStringSync('# code');
@@ -413,7 +413,7 @@ void main() {
         '--target',
         target.path,
         '--include',
-        'claude',
+        'agents',
       ]);
 
       expect(
@@ -427,10 +427,10 @@ void main() {
     });
 
     test('--no-install skips both prompt phases', () async {
-      final skillsSrc = Directory(p.join(pkgRoot.path, 'claude', 'skills'))
+      final skillsSrc = Directory(p.join(pkgRoot.path, 'agents', 'skills'))
         ..createSync(recursive: true);
       writeSkillIn(skillsSrc, 'alpha');
-      final convSrc = Directory(p.join(pkgRoot.path, 'claude', 'conventions'))
+      final convSrc = Directory(p.join(pkgRoot.path, 'agents', 'conventions'))
         ..createSync(recursive: true);
       File(p.join(convSrc.path, 'code-conventions.md'))
           .writeAsStringSync('# code');
@@ -442,7 +442,7 @@ void main() {
         '--target',
         target.path,
         '--include',
-        'claude',
+        'agents',
         '--no-install',
       ]);
 
