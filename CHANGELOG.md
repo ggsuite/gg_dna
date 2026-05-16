@@ -15,3 +15,4 @@
 ### Changed
 
 - migrate claude/ configs to agents/, update references throughout
+- Move dna files to dna folder

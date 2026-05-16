@@ -15,6 +15,7 @@ import 'package:test/test.dart';
 void main() {
   late Directory tmp;
   late Directory pkgRoot;
+  late Directory pkgDna;
   late Directory target;
   late List<String> messages;
   late List<String> selectorPrompts;
@@ -23,6 +24,7 @@ void main() {
   setUp(() {
     tmp = Directory.systemTemp.createTempSync('sync_test_');
     pkgRoot = Directory(p.join(tmp.path, 'pkg'))..createSync();
+    pkgDna = Directory(p.join(pkgRoot.path, 'dna'))..createSync();
     target = Directory(p.join(tmp.path, 'target'))..createSync();
     messages = <String>[];
     selectorPrompts = <String>[];
@@ -66,7 +68,8 @@ void main() {
 
   // ===========================================================================
   group('Sync', () {
-    test('throws when --source does not exist', () async {
+    test('throws when source dna folder does not exist', () async {
+      // pkgRoot exists, but a custom --source pointing at a path without dna/.
       final cmd = makeCmd();
       final runner = makeRunner(cmd);
       await expectLater(
@@ -82,44 +85,10 @@ void main() {
       );
     });
 
-    test('throws when none of the includes are present in source', () async {
-      final cmd = makeCmd();
-      final runner = makeRunner(cmd);
-      await expectLater(
-        runner.run([
-          'sync',
-          '--target',
-          target.path,
-          '--no-install',
-        ]),
-        throwsA(isA<UsageException>()),
-      );
-    });
-
-    test('reports skipped includes that are absent in source', () async {
-      writeFile(p.join(pkgRoot.path, 'guides', 'a.md'), 'A');
-      // 'scripts' and 'agents' are missing in pkgRoot.
-
-      final cmd = makeCmd();
-      final runner = makeRunner(cmd);
-      await runner.run([
-        'sync',
-        '--target',
-        target.path,
-        '--no-install',
-      ]);
-
-      expect(
-        messages.any((m) => m.contains('skipped (not in source)')),
-        isTrue,
-      );
-    });
-
-    test('copies default folders into <target>/dna and skips install',
-        () async {
-      writeFile(p.join(pkgRoot.path, 'guides', 'a.md'), 'A');
-      writeFile(p.join(pkgRoot.path, 'scripts', 'run.sh'), 'echo hi');
-      writeFile(p.join(pkgRoot.path, 'agents', 'sub', 'b.md'), 'B');
+    test('mirrors source dna/ into <target>/dna and skips install', () async {
+      writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'A');
+      writeFile(p.join(pkgDna.path, 'scripts', 'run.sh'), 'echo hi');
+      writeFile(p.join(pkgDna.path, 'agents', 'sub', 'b.md'), 'B');
 
       final cmd = makeCmd();
       final runner = makeRunner(cmd);
@@ -144,15 +113,12 @@ void main() {
             .readAsStringSync(),
         'B',
       );
-      expect(
-        messages.any((m) => m.contains('Synced 3 folder(s)')),
-        isTrue,
-      );
+      expect(messages.any((m) => m.contains('Synced')), isTrue);
       expect(selectorPrompts, isEmpty);
     });
 
-    test('replaces stale files in an existing dna subfolder', () async {
-      writeFile(p.join(pkgRoot.path, 'guides', 'a.md'), 'A-new');
+    test('replaces stale files in an existing target dna/', () async {
+      writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'A-new');
       writeFile(p.join(target.path, 'dna', 'guides', 'a.md'), 'A-old');
       writeFile(p.join(target.path, 'dna', 'guides', 'gone.md'), 'gone');
 
@@ -162,8 +128,6 @@ void main() {
         'sync',
         '--target',
         target.path,
-        '--include',
-        'guides',
         '--no-install',
       ]);
 
@@ -178,14 +142,12 @@ void main() {
     });
 
     test('--check passes when target/dna matches source', () async {
-      writeFile(p.join(pkgRoot.path, 'guides', 'a.md'), 'A');
+      writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'A');
       // First do a real sync.
       await makeRunner(makeCmd()).run([
         'sync',
         '--target',
         target.path,
-        '--include',
-        'guides',
         '--no-install',
       ]);
       messages.clear();
@@ -195,15 +157,13 @@ void main() {
         'sync',
         '--target',
         target.path,
-        '--include',
-        'guides',
         '--check',
       ]);
       expect(messages.last, contains('up to date'));
     });
 
-    test('--check throws when target/dna subfolder is missing', () async {
-      writeFile(p.join(pkgRoot.path, 'guides', 'a.md'), 'A');
+    test('--check throws when target/dna is missing', () async {
+      writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'A');
 
       final cmd = makeCmd();
       final runner = makeRunner(cmd);
@@ -212,8 +172,6 @@ void main() {
           'sync',
           '--target',
           target.path,
-          '--include',
-          'guides',
           '--check',
         ]),
         throwsA(isA<Exception>()),
@@ -222,8 +180,8 @@ void main() {
     });
 
     test('--check throws when the dest file set differs from source', () async {
-      writeFile(p.join(pkgRoot.path, 'guides', 'a.md'), 'A');
-      writeFile(p.join(pkgRoot.path, 'guides', 'b.md'), 'B');
+      writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'A');
+      writeFile(p.join(pkgDna.path, 'guides', 'b.md'), 'B');
       writeFile(p.join(target.path, 'dna', 'guides', 'a.md'), 'A');
       // 'b.md' is missing from the dest, so the file set differs.
 
@@ -234,8 +192,6 @@ void main() {
           'sync',
           '--target',
           target.path,
-          '--include',
-          'guides',
           '--check',
         ]),
         throwsA(isA<Exception>()),
@@ -247,7 +203,7 @@ void main() {
     });
 
     test('--check throws on out-of-date file content', () async {
-      writeFile(p.join(pkgRoot.path, 'guides', 'a.md'), 'A-new');
+      writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'A-new');
       writeFile(p.join(target.path, 'dna', 'guides', 'a.md'), 'A-old');
 
       final cmd = makeCmd();
@@ -257,8 +213,6 @@ void main() {
           'sync',
           '--target',
           target.path,
-          '--include',
-          'guides',
           '--check',
         ]),
         throwsA(isA<Exception>()),
@@ -267,8 +221,8 @@ void main() {
     });
 
     test('prompts per skill and installs only the selected ones', () async {
-      // Bundled skills under <pkg>/agents/skills.
-      final skillsSrc = Directory(p.join(pkgRoot.path, 'agents', 'skills'))
+      // Bundled skills under <pkg>/dna/agents/skills.
+      final skillsSrc = Directory(p.join(pkgDna.path, 'agents', 'skills'))
         ..createSync(recursive: true);
       writeSkillIn(skillsSrc, 'new-project');
       writeSkillIn(skillsSrc, 'new-ticket');
@@ -285,8 +239,6 @@ void main() {
         'sync',
         '--target',
         target.path,
-        '--include',
-        'agents',
       ]);
 
       // dna/ populated
@@ -328,7 +280,7 @@ void main() {
 
     test('prompts per convention and applies only the selected ones', () async {
       final convSrc = Directory(
-        p.join(pkgRoot.path, 'agents', 'conventions'),
+        p.join(pkgDna.path, 'agents', 'conventions'),
       )..createSync(recursive: true);
       File(p.join(convSrc.path, 'code-conventions.md'))
           .writeAsStringSync('# code');
@@ -344,8 +296,6 @@ void main() {
         'sync',
         '--target',
         target.path,
-        '--include',
-        'agents',
       ]);
 
       final destDir = Directory(p.join(target.path, '.claude', 'conventions'));
@@ -373,7 +323,7 @@ void main() {
 
     test('logs "no skills selected" when user says no to every prompt',
         () async {
-      final skillsSrc = Directory(p.join(pkgRoot.path, 'agents', 'skills'))
+      final skillsSrc = Directory(p.join(pkgDna.path, 'agents', 'skills'))
         ..createSync(recursive: true);
       writeSkillIn(skillsSrc, 'alpha');
       // Default selector returns false for everything (no answers configured).
@@ -384,8 +334,6 @@ void main() {
         'sync',
         '--target',
         target.path,
-        '--include',
-        'agents',
       ]);
 
       expect(
@@ -400,7 +348,7 @@ void main() {
 
     test('logs "no conventions selected" when user says no to every prompt',
         () async {
-      final convSrc = Directory(p.join(pkgRoot.path, 'agents', 'conventions'))
+      final convSrc = Directory(p.join(pkgDna.path, 'agents', 'conventions'))
         ..createSync(recursive: true);
       File(p.join(convSrc.path, 'code-conventions.md'))
           .writeAsStringSync('# code');
@@ -412,8 +360,6 @@ void main() {
         'sync',
         '--target',
         target.path,
-        '--include',
-        'agents',
       ]);
 
       expect(
@@ -427,10 +373,10 @@ void main() {
     });
 
     test('--no-install skips both prompt phases', () async {
-      final skillsSrc = Directory(p.join(pkgRoot.path, 'agents', 'skills'))
+      final skillsSrc = Directory(p.join(pkgDna.path, 'agents', 'skills'))
         ..createSync(recursive: true);
       writeSkillIn(skillsSrc, 'alpha');
-      final convSrc = Directory(p.join(pkgRoot.path, 'agents', 'conventions'))
+      final convSrc = Directory(p.join(pkgDna.path, 'agents', 'conventions'))
         ..createSync(recursive: true);
       File(p.join(convSrc.path, 'code-conventions.md'))
           .writeAsStringSync('# code');
@@ -441,8 +387,6 @@ void main() {
         'sync',
         '--target',
         target.path,
-        '--include',
-        'agents',
         '--no-install',
       ]);
 

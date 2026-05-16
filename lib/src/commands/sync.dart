@@ -22,10 +22,10 @@ typedef PackageRootResolver = Future<String> Function();
 /// for "yes". Used by [Sync] to decide which skills / conventions to install.
 typedef YesNoSelector = bool Function(String prompt);
 
-/// Mirrors selected folders shipped with `gg_dna` into a `dna/` directory of
-/// the consuming repository, then offers — per skill and per convention —
-/// to install them into the project's `.claude/` folder via
-/// [InstallSkills] and [ApplyConventions].
+/// Mirrors the `dna/` folder shipped with `gg_dna` into the consuming
+/// repository, then offers — per skill and per convention — to install them
+/// into the project's `.claude/` folder via [InstallSkills] and
+/// [ApplyConventions].
 class Sync extends Command<dynamic> {
   /// Constructor.
   ///
@@ -47,19 +47,13 @@ class Sync extends Command<dynamic> {
         'source',
         abbr: 's',
         help: 'Source folder containing the gg_dna content. Defaults to the '
-            'root of the resolved gg_dna package.',
+            'root of the resolved gg_dna package. The `dna/` subfolder of '
+            'this path is mirrored into <target>/dna.',
       )
       ..addOption(
         'target',
         abbr: 't',
         help: 'Target folder. Defaults to <cwd>.',
-      )
-      ..addMultiOption(
-        'include',
-        abbr: 'i',
-        help: 'Subfolders of <source> to copy into <target>/dna. Repeat or '
-            'comma-separate.',
-        defaultsTo: defaultIncludes,
       )
       ..addFlag(
         'check',
@@ -81,9 +75,6 @@ class Sync extends Command<dynamic> {
   final PackageRootResolver _packageRootResolver;
   final YesNoSelector _selector;
 
-  /// Folders copied by default when `--include` is not provided.
-  static const List<String> defaultIncludes = ['guides', 'scripts', 'agents'];
-
   /// Subdirectory inside `<target>/dna/agents/skills` discovered for the
   /// install-skills prompt phase.
   static const String _dnaSkillsRel = 'dna/agents/skills';
@@ -97,41 +88,20 @@ class Sync extends Command<dynamic> {
 
   @override
   final description =
-      'Copy gg_dna content into <target>/dna, then optionally install '
-      "Claude Code skills and conventions into the project's .claude folder.";
+      'Mirror the gg_dna `dna/` folder into <target>/dna, then optionally '
+      "install Claude Code skills and conventions into the project's "
+      '.claude folder.';
 
   @override
   Future<void> run() async {
-    final source = await _resolveSource(argResults!['source'] as String?);
+    final sourceDna = await _resolveSourceDna(argResults!['source'] as String?);
     final target = _resolveTarget(argResults!['target'] as String?);
-    final includes = (argResults!['include'] as List<String>)
-        .where((s) => s.trim().isNotEmpty)
-        .toList(growable: false);
     final checkOnly = argResults!['check'] as bool;
     final noInstall = argResults!['no-install'] as bool;
 
-    if (!source.existsSync()) {
+    if (!sourceDna.existsSync()) {
       throw UsageException(
-        'Source folder does not exist: ${source.path}',
-        usage,
-      );
-    }
-
-    final missing = <String>[];
-    final present = <Directory>[];
-    for (final name in includes) {
-      final dir = Directory(p.join(source.path, name));
-      if (dir.existsSync()) {
-        present.add(dir);
-      } else {
-        missing.add(name);
-      }
-    }
-
-    if (present.isEmpty) {
-      throw UsageException(
-        'None of the requested includes exist under ${source.path}: '
-        '${includes.join(', ')}.',
+        'Source dna folder does not exist: ${sourceDna.path}',
         usage,
       );
     }
@@ -139,29 +109,15 @@ class Sync extends Command<dynamic> {
     final dnaDir = Directory(p.join(target.path, 'dna'));
 
     if (checkOnly) {
-      _check(present, dnaDir);
+      _check(sourceDna, dnaDir);
       return;
     }
 
-    dnaDir.createSync(recursive: true);
-
-    for (final dir in present) {
-      final destDir = Directory(p.join(dnaDir.path, p.basename(dir.path)));
-      if (destDir.existsSync()) {
-        destDir.deleteSync(recursive: true);
-      }
-      copyDirectory(dir, destDir);
-      ggLog('  + synced ${p.basename(dir.path)} -> '
-          '${p.relative(destDir.path, from: target.path)}');
+    if (dnaDir.existsSync()) {
+      dnaDir.deleteSync(recursive: true);
     }
-
-    if (missing.isNotEmpty) {
-      ggLog('  ! skipped (not in source): ${missing.join(', ')}');
-    }
-
-    ggLog(
-      'Synced ${present.length} folder(s) into ${dnaDir.path}.',
-    );
+    copyDirectory(sourceDna, dnaDir);
+    ggLog('Synced ${sourceDna.path} -> ${dnaDir.path}.');
 
     if (noInstall) {
       return;
@@ -206,11 +162,10 @@ class Sync extends Command<dynamic> {
   // Private
   // ===========================================================================
 
-  Future<Directory> _resolveSource(String? raw) async {
-    if (raw != null && raw.isNotEmpty) {
-      return Directory(raw);
-    }
-    return Directory(await _packageRootResolver());
+  Future<Directory> _resolveSourceDna(String? raw) async {
+    final root =
+        (raw != null && raw.isNotEmpty) ? raw : await _packageRootResolver();
+    return Directory(p.join(root, 'dna'));
   }
 
   Directory _resolveTarget(String? raw) {
@@ -299,26 +254,23 @@ class Sync extends Command<dynamic> {
     ]);
   }
 
-  void _check(List<Directory> sources, Directory dnaDir) {
-    final problems = <String>[];
+  void _check(Directory source, Directory dest) {
+    if (!dest.existsSync()) {
+      ggLog('  - missing: ${dest.path}');
+      throw Exception('dna/ out of date — run `gg_dna sync` to fix.');
+    }
 
-    for (final src in sources) {
-      final destDir = Directory(p.join(dnaDir.path, p.basename(src.path)));
-      if (!destDir.existsSync()) {
-        problems.add('missing: ${destDir.path}');
-        continue;
-      }
-      final srcFiles = _listFiles(src);
-      final destFiles = _listFiles(destDir);
-      if (!_listEquals(srcFiles, destFiles)) {
-        problems.add('file set differs: ${destDir.path}');
-        continue;
-      }
+    final problems = <String>[];
+    final srcFiles = _listFiles(source);
+    final destFiles = _listFiles(dest);
+    if (!_listEquals(srcFiles, destFiles)) {
+      problems.add('file set differs: ${dest.path}');
+    } else {
       for (final rel in srcFiles) {
-        final a = File(p.join(src.path, rel)).readAsBytesSync();
-        final b = File(p.join(destDir.path, rel)).readAsBytesSync();
+        final a = File(p.join(source.path, rel)).readAsBytesSync();
+        final b = File(p.join(dest.path, rel)).readAsBytesSync();
         if (!_bytesEqual(a, b)) {
-          problems.add('out of date: ${p.join(destDir.path, rel)}');
+          problems.add('out of date: ${p.join(dest.path, rel)}');
         }
       }
     }
