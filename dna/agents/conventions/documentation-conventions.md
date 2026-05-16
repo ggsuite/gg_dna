@@ -1,6 +1,6 @@
-# Grace Cloud — Documentation Conventions
+# Documentation Conventions
 
-Dokumentation in Grace-Cloud-Paketen ist **funktional**, nicht "schön". Jedes Stück Doku hat ein klares Ziel: API-Verständnis, Reproduzierbarkeit, Änderungs-Nachvollziehbarkeit.
+Dokumentation ist **funktional**, nicht "schön". Jedes Stück Doku hat ein klares Ziel: API-Verständnis, Reproduzierbarkeit, Änderungs-Nachvollziehbarkeit. Diese Datei ist die generische Basis — projektspezifische Tooling-Hinweise (CI-Workflows, Commit-Wrapper) gehören in einen Overlay.
 
 ## 1. Doc-Comments im Code (`///`)
 
@@ -49,12 +49,12 @@ Please file feature requests and bugs at [GitHub](https://github.com/<org>/<pkg>
 ```
 
 Optional und üblich:
-- **`## State`** mit CI-Badge: `[![Dart Script Execution](https://github.com/<org>/<pkg>/actions/workflows/check.yaml/badge.svg)](...)`.
-- **`## Classes`** als Tabelle bei Mehr-Klassen-Paketen (siehe `gg_list/README.md`):
+- **`## State`** mit CI-Badge.
+- **`## Classes`** als Tabelle bei Mehr-Klassen-Paketen:
   ```markdown
   | Class            | Description                          |
   | :--------------- | :----------------------------------- |
-  | `GgList`         | Create lists of ordinary value types |
+  | `FooList`        | Create lists of ordinary value types |
   ```
 - **`## How It Works`** für nicht-triviale Mechaniken.
 - **TOC** bei langen Readmes (manuell gepflegt).
@@ -63,7 +63,7 @@ Tonfall: knapp, technisch, Englisch. Keine Marketing-Sätze.
 
 ## 3. CHANGELOG.md
 
-[Keep a Changelog](https://keepachangelog.com)-Style mit Grace-Cloud-Anpassungen:
+[Keep a Changelog](https://keepachangelog.com)-Style:
 
 ```markdown
 # Changelog
@@ -74,7 +74,7 @@ Tonfall: knapp, technisch, Englisch. Keine Marketing-Sätze.
 - New `Foo.bar` factory.
 
 ### Changed
-- Default of `useCarriageReturn` is now `!isGitHub`.
+- Default of `useCarriageReturn` is now `!isCi`.
 
 ### Fixed
 - Race condition in `dispose`.
@@ -93,9 +93,8 @@ Regeln:
 - **Reverse chronological** (neueste oben).
 - **Sektionen** nur wenn relevant: `Added`, `Changed`, `Fixed`, `Removed` (manchmal `Deprecated`, `Security`).
 - **Versions-Header**: `## [<semver>] - <YYYY-MM-DD>`. Eckige Klammern bei verlinkten Versionen.
-- **Compare-Links** am Datei-Ende; pflegen oder mit `gg do commit` automatisch generieren lassen.
+- **Compare-Links** am Datei-Ende.
 - **Bullet-Items** sind kurz und imperativ ("Add X", "Fix Y").
-- **`gg do commit -m "..."`** schreibt die Commit-Message automatisch in den Changelog. Manuell editieren ist erlaubt, sollte aber selten nötig sein.
 
 ## 4. example/
 
@@ -106,36 +105,24 @@ Regeln:
 
 ## 5. Workflow-Dateien (.github/workflows/)
 
-`pipeline.yaml` (Standard, von `gg_create_package` erzeugt):
+Welche Pipeline läuft, ist projektspezifisch. Die typische Struktur:
 
-- Trigger: `push` auf `main`.
-- Steps: Git-User → SSH-Key → Checkout → Flutter/Dart-Detection → SDK-Setup → `pub get` → `dart pub global activate gg` → `gg info last-changes-hash` → `gg info modified-files --force` → `gg did commit` → `gg did push` → `gg can commit --force`.
-- **Nicht eigenmächtig anpassen.** Wenn Pipeline-Änderungen nötig sind, `gg`-Tooling oder Team-Konvention abstimmen.
+- Trigger: `push` auf `main` (und ggf. PRs).
+- Steps: Checkout → SDK-Setup → `pub get` → `dart analyze` → `dart format --set-exit-if-changed` → `dart test`.
+- Optional: `pana` für Pakete vor Publish, `flutter test` für Flutter-Pakete.
 
-`check.yaml` (lokaler `gg`-Check-Schalter):
-
-```yaml
-needsInternet: false
-analyze:
-  execute: true
-format:
-  execute: true
-tests:
-  execute: true
-pana:
-  execute: false   # true für Flutter-Pakete oder vor Publish
-```
+Pipeline-Änderungen sollten mit dem Team abgestimmt werden, nicht eigenmächtig.
 
 ## 6. CLAUDE.md
 
-Die `CLAUDE.md` im Repo-Root wird von Claude Code automatisch geladen. Pflicht-Inhalt:
+Die `CLAUDE.md` im Repo-Root wird von Claude Code automatisch geladen. Empfohlener Inhalt:
 
-- **`@`-Imports zu den Konventions-Dokumenten** in `.gg/claude/`. Diese werden vom `apply-conventions`-Kommando automatisch eingefügt und in einem Marker-Block gehalten:
+- **`@`-Imports zu den Konventions-Dokumenten** in `.claude/conventions/`. Diese werden vom `apply-conventions`-Kommando automatisch eingefügt und in einem Marker-Block gehalten:
   ```markdown
   <!-- gg_dna:conventions:start v=YYYY-MM-DD -->
-  @.gg/claude/code-conventions.md
-  @.gg/claude/test-conventions.md
-  @.gg/claude/documentation-conventions.md
+  @.claude/conventions/code-conventions.md
+  @.claude/conventions/test-conventions.md
+  @.claude/conventions/documentation-conventions.md
   <!-- gg_dna:conventions:end -->
   ```
 - **Repo-spezifische Hinweise** außerhalb des Marker-Blocks (oben oder unten): Architekturskizze, Domain-Begriffe, projektspezifische Workflows.

@@ -1,14 +1,14 @@
-# Grace Cloud — Test Conventions
+# Test Conventions (Dart / Flutter)
 
-Tests sind Pflicht, nicht Empfehlung. Das `gg do commit`-Tool blockiert jeden Commit, der nicht 100 % Coverage erreicht oder Tests rot hat. Diese Regeln passen zu dieser Realität.
+Tests sind Pflicht, nicht Empfehlung. Dieses Dokument ist die generische Basis — projektspezifische Tooling-Aufrufe (Pre-Commit-Hooks, CI-Pipelines) gehören in einen Overlay.
 
 ## 1. Datei-Struktur
 
 - **1:1-Spiegelung** von `lib/src/` zu `test/`:
   - `lib/src/foo.dart` → `test/foo_test.dart`
   - `lib/src/sub/bar.dart` → `test/sub/bar_test.dart`
-- **Eine Test-Datei pro Source-Datei.** `gg can commit` warnt sonst.
-- Test-Dateien beginnen mit dem **Lizenz-Header** (siehe code-conventions.md, §2).
+- **Eine Test-Datei pro Source-Datei.**
+- Test-Dateien beginnen mit dem **Lizenz-Header** (siehe `code-conventions.md`, §2).
 - Top-Level-`main()`-Funktion, kein expliziter Rückgabetyp.
 
 ## 2. Imports im Test
@@ -29,7 +29,7 @@ Drei-Ebenen-Hierarchie ist Default:
 
 ```dart
 void main() {
-  group('GgStatusPrinter', () {           // Klassenname
+  group('FooBar', () {                    // Klassenname
     group('run()', () {                   // Methode mit (args)
       group('Should print running and', () {
         test('success messages', () { ... });
@@ -85,8 +85,8 @@ for (final cr in [null, false]) {
 
 - **Echte Typen bevorzugen.** Konstruktoren erlauben über Optionalparameter (z. B. `ggLog`, `promptUser`, `homeOverride`) Dependency-Injection — dann sind Tests ohne Mocks möglich.
 - **Funktionen statt Mocks**: ein Callback (`String? Function(String)`) ist einfacher zu testen als eine gemockte `Stdin`-Klasse.
-- **Test-Singletons**: für globale Flags wie `isGitHub` gibt es einen `testIsGitHub`-Override; setze ihn in `setUp` und reset ihn in `tearDown` auf `null`.
-- **`mockito`/`mocktail`**: nur einsetzen, wenn ohne Mock keine vernünftige Test-Strategie möglich ist (selten in den Referenz-Repos).
+- **Test-Singletons**: für globale Flags gibt es projektweite Test-Overrides (`testIsCi`, `testHomeDir`, …); setze sie in `setUp` und reset sie in `tearDown` auf `null`.
+- **`mockito`/`mocktail`**: nur einsetzen, wenn ohne Mock keine vernünftige Test-Strategie möglich ist.
 
 ## 7. Test-Inhalt
 
@@ -94,11 +94,11 @@ for (final cr in [null, false]) {
 - Bevorzuge **strukturelle Vergleiche** (`expect(messages, equals([...]))`) gegenüber Einzel-Asserts für Listen.
 - Für Exceptions: `expectLater(future, throwsA(isA<XyzError>().having((e) => e.message, 'message', contains('...'))))`.
 - Für Future-Erfolge: `final result = await ...; expect(result, ...);`.
-- **Keine `print`** in Tests. Wenn Output abgefangen werden muss, `gg_capture_print`'s `capturePrint(...)` benutzen.
+- **Keine `print`** in Tests. Wenn Output abgefangen werden muss, einen Capture-Helfer benutzen (z. B. `gg_capture_print`'s `capturePrint(...)`).
 
 ## 8. Coverage
 
-- **100 % erforderlich.** `gg do commit` schlägt sonst fehl.
+- **100 % erforderlich** als Default-Anspruch. Projektspezifische Pre-Commit-/CI-Checks blocken sonst.
 - **Unerreichbare oder irrelevante Codepfade** mit Kommentaren markieren:
   ```dart
   // coverage:ignore-line
@@ -122,9 +122,9 @@ for (final cr in [null, false]) {
 
 ## 10. Lokale Validierung vor Commit
 
-Vor jedem `gg do commit` läuft automatisch:
+Vor jedem Commit sollten laufen:
 - `dart analyze` (sauber)
 - `dart format` (sauber)
-- `dart test` (alle grün, 100 % Coverage)
+- `dart test` (alle grün, gewünschte Coverage)
 
-Manuell vor-prüfen mit `gg can commit` — keine Push-Versuche mit roten Tests.
+Welches Tool das automatisiert (Git-Hook, CLI-Wrapper, CI-Job), ist projektspezifisch.

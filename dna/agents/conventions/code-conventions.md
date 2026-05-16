@@ -1,22 +1,22 @@
-# Grace Cloud — Code Conventions (Dart / Flutter)
+# Code Conventions (Dart / Flutter)
 
-Diese Regeln gelten für alle Grace-Cloud-Pakete (`gg_*`, `kidney_*`, `ds_*`). Sie wurden aus den Referenz-Repos `gg_status_printer`, `gg_typedefs`, `gg_router`, `gg_list` extrahiert. Wenn du Code für ein solches Paket schreibst oder ein neues Paket anlegst, halte dich strikt an diese Regeln.
+Diese Regeln definieren einen einheitlichen Code-Stil für Dart- und Flutter-Pakete. Sie sind als generische Basis gedacht — projektspezifische Anpassungen (Prefixe, Lizenz-Header, zusätzliche Lints) gehören in einen Overlay (siehe `gg_dna sync <overlay>`).
 
 ## 1. Paket- & Datei-Layout
 
-- **Paketname = Repo-Name = Klassen-Prefix.** `gg_status_printer` exportiert `GgStatusPrinter`. Niemals zwei Top-Level-Konzepte in einem Paket.
+- **Paketname = Repo-Name = Klassen-Prefix.** Beispiel: `foo_bar` exportiert `FooBar`. Niemals zwei Top-Level-Konzepte in einem Paket.
 - **Public API liegt in `lib/<package>.dart`** und ist eine reine Barrel-Datei: License-Header, `library;`, dann ausschließlich `export 'src/...';`-Zeilen. Keine Implementierung.
 - **Implementierung liegt in `lib/src/<file>.dart`.** Externe Konsumenten importieren niemals `package:<pkg>/src/...`.
-- **Datei-Namen sind snake_case** und spiegeln den Haupt-Typ darin (`gg_status_printer.dart` enthält `class GgStatusPrinter`). Eng verwandte kleine Helfer (Enums, Typedefs, kurze Datenklassen) dürfen mit in derselben Datei liegen.
+- **Datei-Namen sind snake_case** und spiegeln den Haupt-Typ darin (`foo_bar.dart` enthält `class FooBar`). Eng verwandte kleine Helfer (Enums, Typedefs, kurze Datenklassen) dürfen mit in derselben Datei liegen.
 - **Tests spiegeln `lib/src/` 1:1**: `lib/src/foo.dart` → `test/foo_test.dart`. Siehe `test-conventions.md`.
 
 ## 2. Lizenz-Header
 
-**Jede `.dart`-Datei** beginnt mit exakt diesem Block (Jahr aktualisieren):
+**Jede `.dart`-Datei** beginnt mit einem einheitlichen Lizenz-Header. Das konkrete Format ist projektspezifisch — in einem Overlay festlegen. Beispiel:
 
 ```dart
 // @license
-// Copyright (c) 2019 - <YYYY> Dr. Gabriel Gatzsche. All Rights Reserved.
+// Copyright (c) <YEARS> <AUTHOR>. All Rights Reserved.
 //
 // Use of this source code is governed by terms that can be
 // found in the LICENSE file in the root of this package.
@@ -27,7 +27,7 @@ Danach: Leerzeile, dann `library;` (nur in der Barrel-Datei) oder Imports.
 ## 3. Imports
 
 - **Reihenfolge:** `dart:` zuerst, dann `package:`, dann relative Imports — jeweils alphabetisch, durch Leerzeilen getrennt.
-- **Innerhalb des Pakets**: relative Imports (`import '../gg_router.dart';`) bevorzugen — der Lint `prefer_relative_imports` ist in den meisten Repos aktiv.
+- **Innerhalb des Pakets**: relative Imports (`import '../foo_bar.dart';`) bevorzugen — der Lint `prefer_relative_imports` ist in den meisten Setups aktiv.
 - **In Tests** das eigene Paket über `package:<pkg>/<pkg>.dart` importieren, nicht über `src/`.
 
 ## 4. Klassen-Aufbau
@@ -45,22 +45,22 @@ Felder sind grundsätzlich `final`. Mutability wird vermieden; "ändern" geschie
 ## 5. Konstruktoren & API
 
 - **Named parameters mit `required`** sind Default. Positionale Parameter nur bei trivialen 1-Argument-Konstruktoren.
-- Sinnvolle Defaults im Constructor (`ggLog = print`, `useCarriageReturn = !isGitHub`).
-- **Generische Typ-Parameter** wo es um wiederverwendbare Container/Workflows geht (`GgStatusPrinter<T>`, `GgList<T>`).
+- Sinnvolle Defaults im Constructor (`ggLog = print`, `useCarriageReturn = !isCi`).
+- **Generische Typ-Parameter** wo es um wiederverwendbare Container/Workflows geht (`FooContainer<T>`, `BarList<T>`).
 - **Factory-Konstruktoren** für alternative Erzeugung (`.generate`, `.fromList`, `.fromX`).
 - Async-Code: `Future<T>` zurückgeben, Fehler mit `try / catch / rethrow` behandeln (kein Schlucken).
 - `unawaited_futures` ist Lint-aktiv — alle `Future` entweder awaiten oder explizit mit `unawaited(...)` kennzeichnen.
 
 ## 6. Sektions-Kommentare (visuelle Landmarken)
 
-Diese Marker sind **Konvention im ganzen Codebase** — sie helfen beim Scannen und sind keine Doc-Comments:
+Diese Marker sind als Konvention im Codebase gedacht — sie helfen beim Scannen und sind keine Doc-Comments:
 
 - **`// #############################################################################`** — vor Klassen, Enums oder anderen Top-Level-Konstrukten.
 - **`// ...........................................................................`** — vor jeder Methode, jedem Getter, jedem Feld-Block, der ein Doc-Kommentar trägt.
 - **`// .............................................................................`** (länger) — am Datei-Anfang oder bei größeren Sektions-Trennern.
 - **`// ######################\n// Section Name\n// ######################`** — innerhalb großer Klassen, um logische Sektionen zu markieren (z. B. `Constructors`, `Data access`, `List methods`, `Private`).
 
-Der Stil ist konsistent in allen Repos — **nicht weglassen**, nicht durch eigene Varianten ersetzen.
+Stil konsistent halten — **nicht weglassen**, nicht durch eigene Varianten ersetzen.
 
 ## 7. Dokumentation in Code
 
@@ -111,12 +111,14 @@ Flutter-Pakete dürfen `lines_longer_than_80_chars` und `strict-*` deaktivieren,
 
 | Konstrukt | Stil | Beispiel |
 |---|---|---|
-| Klasse | `Gg<X>` PascalCase | `GgRouterDelegate` |
-| Datei | snake_case mit `gg_`-Prefix | `gg_router_delegate.dart` |
-| Test-Datei | `<filename>_test.dart` | `gg_router_delegate_test.dart` |
+| Klasse | PascalCase | `RouterDelegate` |
+| Datei | snake_case | `router_delegate.dart` |
+| Test-Datei | `<filename>_test.dart` | `router_delegate_test.dart` |
 | Privates Member | `_camelCase` | `_updateState` |
 | Konstante | `lowerCamelCase` (kein SCREAMING_SNAKE) | `carriageReturn` |
-| Enum-Wert | `lowerCamelCase` | `GgStatusPrinterStatus.success` |
+| Enum-Wert | `lowerCamelCase` | `Status.success` |
+
+Projektspezifische Klassen-Prefixe (z. B. paketweite `Foo`-/`Bar`-Prefixes) gehören in einen Overlay, nicht in diese Basisdatei.
 
 ## 10. Was nicht zu tun ist
 
@@ -126,4 +128,3 @@ Flutter-Pakete dürfen `lines_longer_than_80_chars` und `strict-*` deaktivieren,
 - **Keine** Mutationen von Public Feldern; Setter nur mit klarer Begründung.
 - **Keine** TODO-Kommentare ohne Issue/Ticket-Referenz.
 - **Keine** auskommentierten Codeblöcke "für später" — Git ist die History.
-- **Kein** Co-Authored-By-Trailer in Commits (gilt repository-weit).
