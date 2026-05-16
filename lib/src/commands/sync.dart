@@ -22,10 +22,19 @@ typedef PackageRootResolver = Future<String> Function();
 /// for "yes". Used by [Sync] to decide which skills / conventions to install.
 typedef YesNoSelector = bool Function(String prompt);
 
+/// Clones the git repo at [url] into [dest]. Used by [Sync] when the overlay
+/// argument is a git URL. Injected so tests can stub the network call.
+typedef GitCloner = Future<void> Function(String url, Directory dest);
+
 /// Mirrors the `dna/` folder shipped with `gg_dna` into the consuming
-/// repository, then offers — per skill and per convention — to install them
-/// into the project's `.claude/` folder via [InstallSkills] and
-/// [ApplyConventions].
+/// repository. When an overlay repo (local path or git URL) is passed as a
+/// positional argument, its `dna/` is merged on top of the base sync —
+/// files at the same relative path win from the overlay, every other file
+/// from the base remains.
+///
+/// After the copy, the command offers — per skill and per convention — to
+/// install them into the project's `.claude/` folder via [InstallSkills]
+/// and [ApplyConventions].
 class Sync extends Command<dynamic> {
   /// Constructor.
   ///
@@ -36,19 +45,24 @@ class Sync extends Command<dynamic> {
   ///
   /// [selector] is used for the interactive yes/no prompts. The default
   /// renders an [interact.Select] with two options ("yes"/"no").
+  ///
+  /// [gitCloner] is invoked when the overlay argument looks like a git URL.
+  /// The default shells out to `git clone --depth 1 <url> <dest>`.
   Sync({
     required this.ggLog,
     PackageRootResolver? packageRootResolver,
     YesNoSelector? selector,
+    GitCloner? gitCloner,
   })  : _packageRootResolver = packageRootResolver ?? _defaultPackageRoot,
-        _selector = selector ?? _defaultSelector {
+        _selector = selector ?? _defaultSelector,
+        _gitCloner = gitCloner ?? _defaultGitCloner {
     argParser
       ..addOption(
         'source',
         abbr: 's',
-        help: 'Source folder containing the gg_dna content. Defaults to the '
-            'root of the resolved gg_dna package. The `dna/` subfolder of '
-            'this path is mirrored into <target>/dna.',
+        help: 'Source folder containing the base gg_dna content. Defaults to '
+            'the root of the resolved gg_dna package. The `dna/` subfolder '
+            'of this path is mirrored into <target>/dna.',
       )
       ..addOption(
         'target',
@@ -59,7 +73,8 @@ class Sync extends Command<dynamic> {
         'check',
         abbr: 'c',
         help: 'Verify <target>/dna is up to date without writing anything. '
-            'Skips the interactive install/apply phase.',
+            'Skips the interactive install/apply phase. Cannot be combined '
+            'with an overlay argument.',
         negatable: false,
       )
       ..addFlag(
@@ -74,6 +89,7 @@ class Sync extends Command<dynamic> {
 
   final PackageRootResolver _packageRootResolver;
   final YesNoSelector _selector;
+  final GitCloner _gitCloner;
 
   /// Subdirectory inside `<target>/dna/agents/skills` discovered for the
   /// install-skills prompt phase.
@@ -88,9 +104,15 @@ class Sync extends Command<dynamic> {
 
   @override
   final description =
-      'Mirror the gg_dna `dna/` folder into <target>/dna, then optionally '
-      "install Claude Code skills and conventions into the project's "
-      '.claude folder.';
+      'Mirror the gg_dna `dna/` folder into <target>/dna, optionally '
+      'overlay a project-specific dna repo on top, then offer to install '
+      "Claude Code skills and conventions into the project's .claude "
+      'folder.\n'
+      '\n'
+      'Usage: gg_dna sync [overlay]\n'
+      '  overlay  Optional local path or git URL (https://, git@, ssh://, '
+      '*.git). Its `dna/` is merged over the base sync — overlay files '
+      'win on path collisions.';
 
   @override
   Future<void> run() async {
@@ -98,10 +120,18 @@ class Sync extends Command<dynamic> {
     final target = _resolveTarget(argResults!['target'] as String?);
     final checkOnly = argResults!['check'] as bool;
     final noInstall = argResults!['no-install'] as bool;
+    final overlayArg = _readOverlayArg(argResults!.rest);
 
     if (!sourceDna.existsSync()) {
       throw UsageException(
         'Source dna folder does not exist: ${sourceDna.path}',
+        usage,
+      );
+    }
+
+    if (checkOnly && overlayArg != null) {
+      throw UsageException(
+        '--check cannot be combined with an overlay argument.',
         usage,
       );
     }
@@ -113,11 +143,33 @@ class Sync extends Command<dynamic> {
       return;
     }
 
+    // Base sync: wipe <target>/dna and copy <source>/dna fresh.
     if (dnaDir.existsSync()) {
       dnaDir.deleteSync(recursive: true);
     }
     copyDirectory(sourceDna, dnaDir);
     ggLog('Synced ${sourceDna.path} -> ${dnaDir.path}.');
+
+    // Overlay: merge <overlay>/dna on top without wiping the target first.
+    if (overlayArg != null) {
+      Directory? cleanup;
+      try {
+        final (overlayDna, tmp) = await _resolveOverlayDna(overlayArg);
+        cleanup = tmp;
+        if (!overlayDna.existsSync()) {
+          throw UsageException(
+            'Overlay does not contain a dna/ folder: ${overlayDna.path}',
+            usage,
+          );
+        }
+        copyDirectory(overlayDna, dnaDir);
+        ggLog('Overlayed ${overlayDna.path} -> ${dnaDir.path}.');
+      } finally {
+        if (cleanup != null && cleanup.existsSync()) {
+          cleanup.deleteSync(recursive: true);
+        }
+      }
+    }
 
     if (noInstall) {
       return;
@@ -131,7 +183,9 @@ class Sync extends Command<dynamic> {
   // Public helpers (also used by tests)
   // ===========================================================================
 
-  /// Recursively copies the contents of [source] into [target].
+  /// Recursively copies the contents of [source] into [target]. Existing
+  /// files in [target] at colliding relative paths are overwritten; files
+  /// that exist only in [target] are kept (overlay semantics).
   static void copyDirectory(Directory source, Directory target) {
     target.createSync(recursive: true);
     for (final entity in source.listSync(recursive: true, followLinks: false)) {
@@ -144,6 +198,21 @@ class Sync extends Command<dynamic> {
         entity.copySync(targetPath);
       }
     }
+  }
+
+  /// Heuristically classifies an overlay argument as a git URL.
+  ///
+  /// Accepts:
+  ///   - https://… or http://…
+  ///   - git@host:owner/repo(.git)
+  ///   - ssh://…
+  ///   - any string ending in `.git`
+  static bool looksLikeGitUrl(String arg) {
+    if (arg.startsWith('https://') || arg.startsWith('http://')) return true;
+    if (arg.startsWith('ssh://')) return true;
+    if (arg.startsWith('git@')) return true;
+    if (arg.endsWith('.git')) return true;
+    return false;
   }
 
   /// Returns a sorted list of relative file paths under [dir].
@@ -162,9 +231,23 @@ class Sync extends Command<dynamic> {
   // Private
   // ===========================================================================
 
+  String? _readOverlayArg(List<String> rest) {
+    if (rest.isEmpty) return null;
+    if (rest.length > 1) {
+      throw UsageException(
+        'Only a single overlay argument is supported, got: ${rest.join(' ')}',
+        usage,
+      );
+    }
+    final arg = rest.single.trim();
+    if (arg.isEmpty) return null;
+    return arg;
+  }
+
   Future<Directory> _resolveSourceDna(String? raw) async {
-    final root =
-        (raw != null && raw.isNotEmpty) ? raw : await _packageRootResolver();
+    final root = (raw != null && raw.isNotEmpty)
+        ? raw
+        : await _packageRootResolver();
     return Directory(p.join(root, 'dna'));
   }
 
@@ -175,6 +258,31 @@ class Sync extends Command<dynamic> {
     // coverage:ignore-start
     return Directory.current;
     // coverage:ignore-end
+  }
+
+  /// Resolves an overlay argument to a `dna/` source directory.
+  ///
+  /// Returns the dna directory and an optional cleanup directory (a temp
+  /// clone) that the caller must delete after the sync is done. For local
+  /// paths the cleanup is `null`.
+  Future<(Directory dna, Directory? cleanup)> _resolveOverlayDna(
+    String arg,
+  ) async {
+    if (looksLikeGitUrl(arg)) {
+      final tmp = Directory.systemTemp.createTempSync('gg_dna_overlay_');
+      ggLog('Cloning $arg into ${tmp.path} …');
+      await _gitCloner(arg, tmp);
+      return (Directory(p.join(tmp.path, 'dna')), tmp);
+    }
+    final local = Directory(arg);
+    if (local.existsSync()) {
+      return (Directory(p.join(local.path, 'dna')), null);
+    }
+    throw UsageException(
+      'Overlay argument is neither an existing local path nor a recognised '
+      'git URL: $arg',
+      usage,
+    );
   }
 
   Future<void> _promptAndInstallSkills(Directory target) async {
@@ -331,6 +439,20 @@ class Sync extends Command<dynamic> {
       initialIndex: 0,
     ).interact();
     return choice == 0;
+  }
+
+  /// Default git cloner: shells out to `git clone --depth 1 <url> <dest>`.
+  static Future<void> _defaultGitCloner(String url, Directory dest) async {
+    final result = await Process.run(
+      'git',
+      ['clone', '--depth', '1', url, dest.path],
+      runInShell: true,
+    );
+    if (result.exitCode != 0) {
+      throw Exception(
+        'git clone failed (exit ${result.exitCode}): ${result.stderr}',
+      );
+    }
   }
   // coverage:ignore-end
 }

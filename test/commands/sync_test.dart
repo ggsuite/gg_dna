@@ -52,10 +52,11 @@ void main() {
     return false;
   }
 
-  Sync makeCmd() => Sync(
+  Sync makeCmd({GitCloner? gitCloner}) => Sync(
         ggLog: messages.add,
         packageRootResolver: () async => pkgRoot.path,
         selector: selector,
+        gitCloner: gitCloner,
       );
 
   CommandRunner<dynamic> makeRunner(Sync cmd) =>
@@ -399,6 +400,186 @@ void main() {
         File(p.join(target.path, 'CLAUDE.md')).existsSync(),
         isFalse,
       );
+    });
+
+    // -------------------------------------------------------------------------
+    group('overlay', () {
+      test('merges a local overlay over the base — overlay wins on collisions',
+          () async {
+        // Base: claude-code.md + gg-kidney.md.
+        writeFile(p.join(pkgDna.path, 'guides', 'claude-code.md'), 'BASE');
+        writeFile(p.join(pkgDna.path, 'guides', 'gg-kidney.md'), 'BASE');
+
+        // Overlay: same path for claude-code.md (must win) +
+        // a new file only the overlay has.
+        final overlay = Directory(p.join(tmp.path, 'overlay'))..createSync();
+        writeFile(
+          p.join(overlay.path, 'dna', 'guides', 'claude-code.md'),
+          'OVERLAY',
+        );
+        writeFile(
+          p.join(overlay.path, 'dna', 'agents', 'extra.md'),
+          'EXTRA',
+        );
+
+        final cmd = makeCmd();
+        final runner = makeRunner(cmd);
+        await runner.run([
+          'sync',
+          '--target',
+          target.path,
+          '--no-install',
+          overlay.path,
+        ]);
+
+        // Collision: overlay content wins.
+        expect(
+          File(p.join(target.path, 'dna', 'guides', 'claude-code.md'))
+              .readAsStringSync(),
+          'OVERLAY',
+        );
+        // Untouched by overlay: stays from base.
+        expect(
+          File(p.join(target.path, 'dna', 'guides', 'gg-kidney.md'))
+              .readAsStringSync(),
+          'BASE',
+        );
+        // Only in overlay: appears in target.
+        expect(
+          File(p.join(target.path, 'dna', 'agents', 'extra.md'))
+              .readAsStringSync(),
+          'EXTRA',
+        );
+
+        expect(messages.any((m) => m.contains('Overlayed')), isTrue);
+      });
+
+      test('clones an overlay specified as a git URL via the injected cloner',
+          () async {
+        writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'BASE');
+
+        const url = 'https://example.com/gg_dna_ggsuite.git';
+        String? clonedUrl;
+        Directory? clonedDest;
+        Future<void> cloner(String u, Directory dest) async {
+          clonedUrl = u;
+          clonedDest = dest;
+          // Simulate the clone result.
+          writeFile(p.join(dest.path, 'dna', 'guides', 'a.md'), 'FROM_REMOTE');
+        }
+
+        final cmd = makeCmd(gitCloner: cloner);
+        final runner = makeRunner(cmd);
+        await runner.run([
+          'sync',
+          '--target',
+          target.path,
+          '--no-install',
+          url,
+        ]);
+
+        expect(clonedUrl, url);
+        expect(clonedDest, isNotNull);
+        expect(
+          File(p.join(target.path, 'dna', 'guides', 'a.md'))
+              .readAsStringSync(),
+          'FROM_REMOTE',
+        );
+        // Temp clone directory was cleaned up.
+        expect(clonedDest!.existsSync(), isFalse);
+      });
+
+      test('throws when overlay is neither an existing path nor a git URL',
+          () async {
+        writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'A');
+
+        final cmd = makeCmd();
+        final runner = makeRunner(cmd);
+        await expectLater(
+          runner.run([
+            'sync',
+            '--target',
+            target.path,
+            '--no-install',
+            '/does/not/exist/and/no/url',
+          ]),
+          throwsA(isA<UsageException>()),
+        );
+      });
+
+      test('throws when overlay path has no dna/ subfolder', () async {
+        writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'A');
+        // Overlay dir exists but contains no dna/.
+        final overlay = Directory(p.join(tmp.path, 'overlay-no-dna'))
+          ..createSync();
+        File(p.join(overlay.path, 'README.md')).writeAsStringSync('# hi');
+
+        final cmd = makeCmd();
+        final runner = makeRunner(cmd);
+        await expectLater(
+          runner.run([
+            'sync',
+            '--target',
+            target.path,
+            '--no-install',
+            overlay.path,
+          ]),
+          throwsA(isA<UsageException>()),
+        );
+      });
+
+      test('--check cannot be combined with an overlay argument', () async {
+        writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'A');
+        final overlay = Directory(p.join(tmp.path, 'overlay'))..createSync();
+        writeFile(p.join(overlay.path, 'dna', 'guides', 'a.md'), 'A');
+
+        final cmd = makeCmd();
+        final runner = makeRunner(cmd);
+        await expectLater(
+          runner.run([
+            'sync',
+            '--target',
+            target.path,
+            '--check',
+            overlay.path,
+          ]),
+          throwsA(isA<UsageException>()),
+        );
+      });
+
+      test('rejects more than one positional overlay argument', () async {
+        writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'A');
+        final cmd = makeCmd();
+        final runner = makeRunner(cmd);
+        await expectLater(
+          runner.run([
+            'sync',
+            '--target',
+            target.path,
+            '--no-install',
+            '/a',
+            '/b',
+          ]),
+          throwsA(isA<UsageException>()),
+        );
+      });
+    });
+
+    // -------------------------------------------------------------------------
+    group('looksLikeGitUrl', () {
+      test('recognises common git URL shapes', () {
+        expect(Sync.looksLikeGitUrl('https://example.com/repo.git'), isTrue);
+        expect(Sync.looksLikeGitUrl('http://example.com/repo'), isTrue);
+        expect(Sync.looksLikeGitUrl('ssh://git@example.com/repo.git'), isTrue);
+        expect(Sync.looksLikeGitUrl('git@github.com:owner/repo.git'), isTrue);
+        expect(Sync.looksLikeGitUrl('owner/repo.git'), isTrue);
+      });
+
+      test('rejects plain paths', () {
+        expect(Sync.looksLikeGitUrl('../foo'), isFalse);
+        expect(Sync.looksLikeGitUrl('/tmp/x'), isFalse);
+        expect(Sync.looksLikeGitUrl('C:\\Users\\x'), isFalse);
+      });
     });
   });
 }
