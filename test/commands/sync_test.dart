@@ -481,8 +481,7 @@ void main() {
         expect(clonedUrl, url);
         expect(clonedDest, isNotNull);
         expect(
-          File(p.join(target.path, 'dna', 'guides', 'a.md'))
-              .readAsStringSync(),
+          File(p.join(target.path, 'dna', 'guides', 'a.md')).readAsStringSync(),
           'FROM_REMOTE',
         );
         // Temp clone directory was cleaned up.

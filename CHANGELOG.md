@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [1.1.0] - 2026-05-26
 
 ### Added
 
@@ -16,3 +16,5 @@
 
 - migrate claude/ configs to agents/, update references throughout
 - Move dna files to dna folder
+
+[1.1.0]: https://github.com/ggsuite/gg_dna/tag/%tag

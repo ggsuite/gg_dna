@@ -245,9 +245,8 @@ class Sync extends Command<dynamic> {
   }
 
   Future<Directory> _resolveSourceDna(String? raw) async {
-    final root = (raw != null && raw.isNotEmpty)
-        ? raw
-        : await _packageRootResolver();
+    final root =
+        (raw != null && raw.isNotEmpty) ? raw : await _packageRootResolver();
     return Directory(p.join(root, 'dna'));
   }
 
