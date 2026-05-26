@@ -110,9 +110,15 @@ class Sync extends Command<dynamic> {
       'folder.\n'
       '\n'
       'Usage: gg_dna sync [overlay]\n'
-      '  overlay  Optional local path or git URL (https://, git@, ssh://, '
-      '*.git). Its `dna/` is merged over the base sync — overlay files '
-      'win on path collisions.';
+      '  overlay  Optional. One of:\n'
+      '             * `gg_*` shorthand — resolved to '
+      'https://github.com/ggsuite/<name>.git and cloned.\n'
+      '             * git URL (https://, http://, git@, ssh://, or '
+      'anything ending in .git) — cloned.\n'
+      '             * local path to a folder that contains a `dna/` '
+      'subdirectory.\n'
+      "           The overlay's `dna/` is merged over the base sync — "
+      'overlay files win on path collisions.';
 
   @override
   Future<void> run() async {
@@ -215,6 +221,25 @@ class Sync extends Command<dynamic> {
     return false;
   }
 
+  /// Expands a bare `gg_*` repo shorthand to its canonical github URL.
+  ///
+  /// Returns `https://github.com/ggsuite/<name>.git` when [arg] looks like a
+  /// `gg_*` repo name (e.g. `gg_dna_ggsuite` or `gg_dna_ggsuite.git`).
+  /// Returns `null` otherwise.
+  ///
+  /// The shape must be a bare name: it must start with `gg_`, may only
+  /// contain word characters, dots, or hyphens after that, and must not
+  /// contain slashes, colons, `@`, or whitespace (so real paths and URLs
+  /// are never misclassified as a shorthand). A trailing `.git` is
+  /// stripped before the URL is built, so callers can write either form.
+  static String? expandShorthand(String arg) {
+    final name = arg.endsWith('.git')
+        ? arg.substring(0, arg.length - 4)
+        : arg;
+    if (!RegExp(r'^gg_[A-Za-z0-9._-]+$').hasMatch(name)) return null;
+    return 'https://github.com/ggsuite/$name.git';
+  }
+
   /// Returns a sorted list of relative file paths under [dir].
   static List<String> _listFiles(Directory dir) {
     final files = <String>[];
@@ -264,24 +289,44 @@ class Sync extends Command<dynamic> {
   /// Returns the dna directory and an optional cleanup directory (a temp
   /// clone) that the caller must delete after the sync is done. For local
   /// paths the cleanup is `null`.
+  ///
+  /// Resolution order:
+  ///   1. `gg_*` shorthand — expanded via [expandShorthand] to a github
+  ///      URL under the `ggsuite` org and cloned. Checked first so that
+  ///      `gg_foo` and `gg_foo.git` always resolve to the same remote,
+  ///      independent of the current working directory.
+  ///   2. Anything else recognised by [looksLikeGitUrl] — cloned.
+  ///   3. Existing local directory — used as-is.
   Future<(Directory dna, Directory? cleanup)> _resolveOverlayDna(
     String arg,
   ) async {
+    final shorthand = expandShorthand(arg);
+    if (shorthand != null) {
+      ggLog('Resolved shorthand "$arg" -> $shorthand');
+      return _cloneOverlay(shorthand);
+    }
     if (looksLikeGitUrl(arg)) {
-      final tmp = Directory.systemTemp.createTempSync('gg_dna_overlay_');
-      ggLog('Cloning $arg into ${tmp.path} …');
-      await _gitCloner(arg, tmp);
-      return (Directory(p.join(tmp.path, 'dna')), tmp);
+      return _cloneOverlay(arg);
     }
     final local = Directory(arg);
     if (local.existsSync()) {
       return (Directory(p.join(local.path, 'dna')), null);
     }
     throw UsageException(
-      'Overlay argument is neither an existing local path nor a recognised '
-      'git URL: $arg',
+      'Overlay argument is neither a `gg_*` shorthand, an existing local '
+      'path, nor a recognised git URL: $arg',
       usage,
     );
+  }
+
+  /// Clones [url] into a fresh temp directory and returns the resulting
+  /// `dna/` directory plus the temp directory itself, so the caller can
+  /// clean it up after the overlay has been applied.
+  Future<(Directory dna, Directory cleanup)> _cloneOverlay(String url) async {
+    final tmp = Directory.systemTemp.createTempSync('gg_dna_overlay_');
+    ggLog('Cloning $url into ${tmp.path} …');
+    await _gitCloner(url, tmp);
+    return (Directory(p.join(tmp.path, 'dna')), tmp);
   }
 
   Future<void> _promptAndInstallSkills(Directory target) async {

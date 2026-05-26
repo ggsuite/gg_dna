@@ -488,6 +488,117 @@ void main() {
         expect(clonedDest!.existsSync(), isFalse);
       });
 
+      test('expands a "gg_*" shorthand to a ggsuite github URL and clones',
+          () async {
+        writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'BASE');
+
+        String? clonedUrl;
+        Future<void> cloner(String u, Directory dest) async {
+          clonedUrl = u;
+          writeFile(p.join(dest.path, 'dna', 'guides', 'a.md'), 'FROM_REMOTE');
+        }
+
+        final cmd = makeCmd(gitCloner: cloner);
+        final runner = makeRunner(cmd);
+        await runner.run([
+          'sync',
+          '--target',
+          target.path,
+          '--no-install',
+          'gg_dna_ggsuite',
+        ]);
+
+        expect(
+          clonedUrl,
+          'https://github.com/ggsuite/gg_dna_ggsuite.git',
+        );
+        expect(
+          File(p.join(target.path, 'dna', 'guides', 'a.md')).readAsStringSync(),
+          'FROM_REMOTE',
+        );
+        expect(
+          messages.any(
+            (m) => m.contains('Resolved shorthand "gg_dna_ggsuite"'),
+          ),
+          isTrue,
+        );
+      });
+
+      test('shorthand also accepts a trailing .git', () async {
+        writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'BASE');
+
+        String? clonedUrl;
+        Future<void> cloner(String u, Directory dest) async {
+          clonedUrl = u;
+          writeFile(p.join(dest.path, 'dna', 'guides', 'a.md'), 'FROM_REMOTE');
+        }
+
+        final cmd = makeCmd(gitCloner: cloner);
+        final runner = makeRunner(cmd);
+        await runner.run([
+          'sync',
+          '--target',
+          target.path,
+          '--no-install',
+          'gg_dna_ggsuite.git',
+        ]);
+
+        // Same URL as the bare-name form.
+        expect(
+          clonedUrl,
+          'https://github.com/ggsuite/gg_dna_ggsuite.git',
+        );
+      });
+
+      test(
+        'shorthand wins over local folder with the same name',
+        () async {
+          writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'BASE');
+
+          // A local folder with the same name as the shorthand sits next to
+          // the target. Because the shorthand is resolution-order #1, we
+          // expect the remote (cloner) to be used, not the local folder.
+          final local = Directory(p.join(tmp.path, 'gg_foo'))..createSync();
+          writeFile(p.join(local.path, 'dna', 'guides', 'a.md'), 'LOCAL');
+
+          // The cwd inside which `Directory('gg_foo')` would resolve must
+          // contain the folder for the local branch to even be a candidate.
+          // We force that condition by running the test from `tmp`.
+          final originalCwd = Directory.current;
+          Directory.current = tmp;
+
+          String? clonedUrl;
+          Future<void> cloner(String u, Directory dest) async {
+            clonedUrl = u;
+            writeFile(
+              p.join(dest.path, 'dna', 'guides', 'a.md'),
+              'FROM_REMOTE',
+            );
+          }
+
+          try {
+            final cmd = makeCmd(gitCloner: cloner);
+            final runner = makeRunner(cmd);
+            await runner.run([
+              'sync',
+              '--target',
+              target.path,
+              '--no-install',
+              'gg_foo',
+            ]);
+          } finally {
+            Directory.current = originalCwd;
+          }
+
+          expect(clonedUrl, 'https://github.com/ggsuite/gg_foo.git');
+          expect(
+            File(p.join(target.path, 'dna', 'guides', 'a.md'))
+                .readAsStringSync(),
+            'FROM_REMOTE',
+          );
+        },
+      );
+
       test('throws when overlay is neither an existing path nor a git URL',
           () async {
         writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'A');
@@ -578,6 +689,50 @@ void main() {
         expect(Sync.looksLikeGitUrl('../foo'), isFalse);
         expect(Sync.looksLikeGitUrl('/tmp/x'), isFalse);
         expect(Sync.looksLikeGitUrl('C:\\Users\\x'), isFalse);
+      });
+    });
+
+    // -------------------------------------------------------------------------
+    group('expandShorthand', () {
+      test('expands bare gg_* names to ggsuite github URLs', () {
+        expect(
+          Sync.expandShorthand('gg_dna_ggsuite'),
+          'https://github.com/ggsuite/gg_dna_ggsuite.git',
+        );
+        expect(
+          Sync.expandShorthand('gg_foo'),
+          'https://github.com/ggsuite/gg_foo.git',
+        );
+        expect(
+          Sync.expandShorthand('gg_a-b.c'),
+          'https://github.com/ggsuite/gg_a-b.c.git',
+        );
+      });
+
+      test('strips a trailing .git before building the URL', () {
+        expect(
+          Sync.expandShorthand('gg_dna_ggsuite.git'),
+          'https://github.com/ggsuite/gg_dna_ggsuite.git',
+        );
+      });
+
+      test('rejects anything that is not a bare gg_* name', () {
+        // Wrong prefix.
+        expect(Sync.expandShorthand('kidney_core'), isNull);
+        expect(Sync.expandShorthand('ds_thing'), isNull);
+        expect(Sync.expandShorthand('foo'), isNull);
+        // Prefix only.
+        expect(Sync.expandShorthand('gg_'), isNull);
+        // Contains path separators or URL chars — must not be misclassified.
+        expect(Sync.expandShorthand('owner/gg_foo'), isNull);
+        expect(Sync.expandShorthand('./gg_foo'), isNull);
+        expect(Sync.expandShorthand('gg_foo/sub'), isNull);
+        expect(Sync.expandShorthand('git@github.com:ggsuite/gg_foo.git'), isNull);
+        expect(Sync.expandShorthand('https://x/gg_foo.git'), isNull);
+        expect(Sync.expandShorthand('C:\\gg_foo'), isNull);
+        // Whitespace.
+        expect(Sync.expandShorthand(' gg_foo'), isNull);
+        expect(Sync.expandShorthand('gg_foo '), isNull);
       });
     });
   });
