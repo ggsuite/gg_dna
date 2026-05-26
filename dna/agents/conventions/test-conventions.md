@@ -94,7 +94,7 @@ for (final cr in [null, false]) {
 - Bevorzuge **strukturelle Vergleiche** (`expect(messages, equals([...]))`) gegenüber Einzel-Asserts für Listen.
 - Für Exceptions: `expectLater(future, throwsA(isA<XyzError>().having((e) => e.message, 'message', contains('...'))))`.
 - Für Future-Erfolge: `final result = await ...; expect(result, ...);`.
-- **Keine `print`** in Tests. Wenn Output abgefangen werden muss, einen Capture-Helfer benutzen (z. B. `gg_capture_print`'s `capturePrint(...)`).
+- **Keine `print`** in Tests. Wenn Output abgefangen werden muss, einen Capture-Helfer benutzen.
 
 ## 8. Coverage
 

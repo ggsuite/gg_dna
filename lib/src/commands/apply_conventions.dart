@@ -15,9 +15,9 @@ import 'package:path/path.dart' as p;
 /// and ensures the target's `CLAUDE.md` references them through
 /// `@import`-lines inside a delimited block.
 ///
-/// When the command is executed inside a Kidney workspace (a directory
-/// containing `.master/`, walked up from the current working directory),
-/// the workspace root is used as the target instead of the current directory.
+/// When the command is executed inside a workspace (a directory containing
+/// `.master/`, walked up from the current working directory), the workspace
+/// root is used as the target instead of the current directory.
 class ApplyConventions extends Command<dynamic> {
   /// Constructor.
   ApplyConventions({required this.ggLog}) {
@@ -32,8 +32,8 @@ class ApplyConventions extends Command<dynamic> {
         'target',
         abbr: 't',
         help: 'Target repo or workspace folder. Defaults to the current '
-            'directory; if executed inside a Kidney workspace, the workspace '
-            'root is used instead.',
+            'directory; if executed inside a workspace (directory containing '
+            '.master/), the workspace root is used instead.',
       )
       ..addMultiOption(
         'only',
@@ -66,7 +66,7 @@ class ApplyConventions extends Command<dynamic> {
   final name = 'apply-conventions';
 
   @override
-  final description = 'Copy Grace Cloud convention docs from '
+  final description = 'Copy DNA convention docs from '
       '<target>/dna/agents/conventions into <target>/.claude/conventions and '
       'reference them via @import-lines in <target>/CLAUDE.md.';
 
@@ -146,7 +146,7 @@ class ApplyConventions extends Command<dynamic> {
   /// Locates the workspace root by walking up from [start] until a directory
   /// containing a `.master/` subfolder is found. Returns `null` when no such
   /// directory exists in the chain.
-  static Directory? findKidneyWorkspaceRoot(Directory start) {
+  static Directory? findWorkspaceRoot(Directory start) {
     var dir = start.absolute;
     while (true) {
       if (Directory(p.join(dir.path, '.master')).existsSync()) {
@@ -225,7 +225,7 @@ class ApplyConventions extends Command<dynamic> {
       return Directory(raw);
     }
     final cwd = Directory.current;
-    final workspace = findKidneyWorkspaceRoot(cwd);
+    final workspace = findWorkspaceRoot(cwd);
     return workspace ?? cwd;
   }
 

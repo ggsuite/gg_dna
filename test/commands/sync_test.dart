@@ -406,9 +406,9 @@ void main() {
     group('overlay', () {
       test('merges a local overlay over the base — overlay wins on collisions',
           () async {
-        // Base: claude-code.md + gg-kidney.md.
+        // Base: claude-code.md + a second base-only file.
         writeFile(p.join(pkgDna.path, 'guides', 'claude-code.md'), 'BASE');
-        writeFile(p.join(pkgDna.path, 'guides', 'gg-kidney.md'), 'BASE');
+        writeFile(p.join(pkgDna.path, 'guides', 'other.md'), 'BASE');
 
         // Overlay: same path for claude-code.md (must win) +
         // a new file only the overlay has.
@@ -440,7 +440,7 @@ void main() {
         );
         // Untouched by overlay: stays from base.
         expect(
-          File(p.join(target.path, 'dna', 'guides', 'gg-kidney.md'))
+          File(p.join(target.path, 'dna', 'guides', 'other.md'))
               .readAsStringSync(),
           'BASE',
         );

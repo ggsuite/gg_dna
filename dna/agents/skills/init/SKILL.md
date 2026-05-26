@@ -19,7 +19,7 @@ The end result is one CLAUDE.md at the repo root that combines:
 
 List the markdown files in `dna/agents/guides/` (relative to the repo root). Each file there is a candidate guide for one project type. If the folder is missing or empty, skip ahead to step 3 and produce a CLAUDE.md without a guide section.
 
-The set of guides — and the heuristics for matching them — is **not hardcoded in this skill**. A consuming repo (typically via a `gg_dna sync <overlay>`) provides the concrete guides. Examples a project might ship are `rljson.md` for `@rljson/*` packages or `gg-kidney.md` for Grace-Cloud Dart packages; treat those as examples, not as a closed list.
+The set of guides — and the heuristics for matching them — is **not hardcoded in this skill**. A consuming repo (typically via a `gg_dna sync <overlay>`) provides the concrete guides. For example, a project might ship a guide per framework or package family (one Markdown file per project type); treat any specific filenames you encounter as examples, not as a closed list.
 
 ## 2. Suggest a guide and confirm with the user
 

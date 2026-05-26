@@ -12,7 +12,7 @@ Du legst Tickets für die Arbeit an einem oder mehreren Repositories an. Es gibt
 
 Frage im Zweifel den Nutzer, welcher Modus passt. Wenn er von vornherein nur ein Repo nennt, ist Modus B richtig.
 
-Welche konkreten Tools dafür eingesetzt werden, ist projekt-spezifisch. Beispiele für ein Multi-Repo-Setup: ein Custom-Workspace-CLI mit Sub-Befehlen wie `create ticket`/`add`/`do commit`. Beispiel für Single-Repo: schlicht `git checkout -b <branch>` oder ein Repo-eigener Helfer. Wenn dein Repo per Overlay einen spezifischeren Workflow vorgibt (z. B. `kd`/`gg`), nimm den.
+Welche konkreten Tools dafür eingesetzt werden, ist projekt-spezifisch. Beispiele für ein Multi-Repo-Setup: ein Custom-Workspace-CLI mit Sub-Befehlen wie `create ticket`/`add`/`do commit`. Beispiel für Single-Repo: schlicht `git checkout -b <branch>` oder ein Repo-eigener Helfer. Wenn dein Repo per Overlay einen spezifischeren Workflow vorgibt, nimm den.
 
 ---
 

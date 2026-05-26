@@ -68,18 +68,18 @@ Bei nicht-trivialen Aufgaben (mehrere Dateien, Refactoring, neues Feature, unkla
 
 Faustregel: **Triviale Edits → direkt im Programming-Mode. Alles andere (Bug fixen ohne klare Zeile, Feature, Refactor, Migration) → erst Plan-Mode.**
 
-## 5. Über mehrere Repos arbeiten (Kidney / Grace Cloud)
+## 5. Über mehrere Repos arbeiten
 
-Wenn ein Ticket Änderungen in mehreren Repositories braucht, arbeite **im Ticket-Workspace**, nicht im einzelnen Repo:
+Wenn eine Aufgabe Änderungen in mehreren Repositories braucht, arbeite in einem gemeinsamen **Workspace-Ordner**, der die betroffenen Repos enthält (z. B. nebeneinander als Unterordner oder als Git-Submodule), und starte Claude Code dort:
 
 ```bash
-cd P:\workspace_grace_cloud\<ticket_name>
-kd do claude
+cd <pfad/zum/workspace>
+claude
 ```
 
-`kd do claude` startet Claude Code im Ticket-Workspace mit Zugriff auf **alle** dem Ticket per `kd do add` zugewiesenen Repos. Damit kann Claude repo-übergreifend lesen, ändern und Konsistenz herstellen — z. B. eine Schema-Änderung in `kidney_core` mit der UI in `kidney_ui` zusammen anpassen.
+So kann Claude repo-übergreifend lesen, ändern und Konsistenz herstellen — z. B. eine Schema-Änderung im Backend mit der UI zusammen anpassen.
 
-Für Tickets, die nur ein einziges Repo betreffen, reicht weiterhin `claude` direkt im Repo-Ordner.
+Für Aufgaben, die nur ein einziges Repo betreffen, reicht `claude` direkt im Repo-Ordner.
 
 ## 6. Häufige Befehle
 

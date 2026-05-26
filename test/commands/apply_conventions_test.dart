@@ -229,7 +229,7 @@ void main() {
       );
 
       test(
-        'targets the workspace root when run from a Kidney workspace ticket',
+        'targets the workspace root when run from a workspace ticket',
         () async {
           // Build a fake workspace at <tmp>/workspace with a ticket folder
           // that contains its own dna/ source for conventions.
@@ -418,14 +418,14 @@ void main() {
     });
 
     // -------------------------------------------------------------------------
-    group('findKidneyWorkspaceRoot()', () {
+    group('findWorkspaceRoot()', () {
       test('walks up to a directory containing .master', () {
         final ws = Directory(p.join(tmp.path, 'ws'))..createSync();
         Directory(p.join(ws.path, '.master')).createSync();
         final nested = Directory(p.join(ws.path, 'a', 'b', 'c'))
           ..createSync(recursive: true);
 
-        final found = ApplyConventions.findKidneyWorkspaceRoot(nested);
+        final found = ApplyConventions.findWorkspaceRoot(nested);
         expect(found, isNotNull);
         expect(p.canonicalize(found!.path), p.canonicalize(ws.path));
       });
@@ -433,7 +433,7 @@ void main() {
       test('does not return a path inside the start directory', () {
         final isolated = Directory(p.join(tmp.path, 'isolated', 'deep'))
           ..createSync(recursive: true);
-        final found = ApplyConventions.findKidneyWorkspaceRoot(isolated);
+        final found = ApplyConventions.findWorkspaceRoot(isolated);
         if (found != null) {
           expect(
             p.canonicalize(found.path).startsWith(p.canonicalize(tmp.path)),

@@ -7,10 +7,11 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:gg_capture_print/gg_capture_print.dart';
 import 'package:gg_dna/gg_dna.dart';
 import 'package:test/test.dart';
 import 'package:gg_args/gg_args.dart';
+
+import 'helpers/capture_print.dart';
 
 void main() {
   final messages = <String>[];
