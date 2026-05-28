@@ -7,8 +7,11 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
+import 'dart:convert';
+
 import 'package:gg_dna/src/commands/apply_conventions.dart';
 import 'package:gg_dna/src/commands/sync.dart';
+import 'package:gg_dna/src/util/dna_manifest.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -52,11 +55,18 @@ void main() {
     return false;
   }
 
-  Sync makeCmd({GitCloner? gitCloner}) => Sync(
+  Sync makeCmd({
+    GitCloner? gitCloner,
+    GitRevParse? gitRevParse,
+    GitLsRemote? gitLsRemote,
+  }) =>
+      Sync(
         ggLog: messages.add,
         packageRootResolver: () async => pkgRoot.path,
         selector: selector,
         gitCloner: gitCloner,
+        gitRevParse: gitRevParse,
+        gitLsRemote: gitLsRemote,
       );
 
   CommandRunner<dynamic> makeRunner(Sync cmd) =>
@@ -180,11 +190,10 @@ void main() {
       expect(messages.any((m) => m.contains('missing')), isTrue);
     });
 
-    test('--check throws when the dest file set differs from source', () async {
+    test('--check throws when .dna.json is missing', () async {
       writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'A');
-      writeFile(p.join(pkgDna.path, 'guides', 'b.md'), 'B');
       writeFile(p.join(target.path, 'dna', 'guides', 'a.md'), 'A');
-      // 'b.md' is missing from the dest, so the file set differs.
+      // No .dna.json present — no prior sync.
 
       final cmd = makeCmd();
       final runner = makeRunner(cmd);
@@ -198,19 +207,24 @@ void main() {
         throwsA(isA<Exception>()),
       );
       expect(
-        messages.any((m) => m.contains('file set differs')),
+        messages.any((m) => m.contains('.dna.json')),
         isTrue,
       );
     });
 
-    test('--check throws on out-of-date file content', () async {
-      writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'A-new');
-      writeFile(p.join(target.path, 'dna', 'guides', 'a.md'), 'A-old');
+    test('--check throws when a local file was modified after sync', () async {
+      writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'A');
+      await makeRunner(makeCmd()).run([
+        'sync',
+        '--target',
+        target.path,
+        '--no-install',
+      ]);
+      // Tamper with the synced file.
+      writeFile(p.join(target.path, 'dna', 'guides', 'a.md'), 'A-modified');
 
-      final cmd = makeCmd();
-      final runner = makeRunner(cmd);
       await expectLater(
-        runner.run([
+        makeRunner(makeCmd()).run([
           'sync',
           '--target',
           target.path,
@@ -218,7 +232,36 @@ void main() {
         ]),
         throwsA(isA<Exception>()),
       );
-      expect(messages.any((m) => m.contains('out of date')), isTrue);
+      expect(
+        messages.any((m) => m.contains('local files modified')),
+        isTrue,
+      );
+    });
+
+    test('--check throws when the base source has new content', () async {
+      writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'A');
+      await makeRunner(makeCmd()).run([
+        'sync',
+        '--target',
+        target.path,
+        '--no-install',
+      ]);
+      // Source bumps to A-new but target was not re-synced.
+      writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'A-new');
+
+      await expectLater(
+        makeRunner(makeCmd()).run([
+          'sync',
+          '--target',
+          target.path,
+          '--check',
+        ]),
+        throwsA(isA<Exception>()),
+      );
+      expect(
+        messages.any((m) => m.contains('base source has changed')),
+        isTrue,
+      );
     });
 
     test('prompts per skill and installs only the selected ones', () async {
@@ -400,6 +443,274 @@ void main() {
         File(p.join(target.path, 'CLAUDE.md')).existsSync(),
         isFalse,
       );
+    });
+
+    // -------------------------------------------------------------------------
+    group('.dna.json manifest', () {
+      test('is written after a base-only sync with hash + base version',
+          () async {
+        writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'A');
+        // pubspec.yaml for baseVersion resolution.
+        File(p.join(pkgRoot.path, 'pubspec.yaml'))
+            .writeAsStringSync('name: pkg\nversion: 9.9.9\n');
+
+        await makeRunner(makeCmd()).run([
+          'sync',
+          '--target',
+          target.path,
+          '--no-install',
+        ]);
+
+        final manifestFile = File(p.join(target.path, 'dna', '.dna.json'));
+        expect(manifestFile.existsSync(), isTrue);
+
+        final data =
+            jsonDecode(manifestFile.readAsStringSync()) as Map<String, dynamic>;
+        expect(data['overlay'], isNull);
+        expect(data['overlayCommit'], isNull);
+        expect(data['overlayHash'], isNull);
+        expect(data['baseVersion'], '9.9.9');
+        expect(data['baseHash'], isNotNull);
+        expect(data['hash'], isNotNull);
+      });
+
+      test('captures the overlay commit SHA via gitRevParse', () async {
+        writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'BASE');
+
+        Future<void> cloner(String u, Directory dest) async {
+          writeFile(p.join(dest.path, 'dna', 'guides', 'a.md'), 'OVERLAY');
+        }
+
+        Future<String?> revParse(Directory dir) async => 'abc123';
+
+        await makeRunner(
+          makeCmd(gitCloner: cloner, gitRevParse: revParse),
+        ).run([
+          'sync',
+          '--target',
+          target.path,
+          '--no-install',
+          'https://example.com/x.git',
+        ]);
+
+        final manifest = DnaManifest.read(
+          Directory(p.join(target.path, 'dna')),
+        )!;
+        expect(manifest.overlay, 'https://example.com/x.git');
+        expect(manifest.overlayCommit, 'abc123');
+        expect(manifest.overlayHash, isNotNull);
+      });
+
+      test('auto-reuses the overlay stored in .dna.json when no arg is given',
+          () async {
+        writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'BASE');
+
+        // First sync with an explicit overlay (local path).
+        final overlay = Directory(p.join(tmp.path, 'overlay'))..createSync();
+        writeFile(p.join(overlay.path, 'dna', 'guides', 'a.md'), 'OVERLAY');
+
+        await makeRunner(makeCmd()).run([
+          'sync',
+          '--target',
+          target.path,
+          '--no-install',
+          overlay.path,
+        ]);
+        expect(
+          File(p.join(target.path, 'dna', 'guides', 'a.md')).readAsStringSync(),
+          'OVERLAY',
+        );
+
+        // Bump the overlay then sync again without an arg — must still apply.
+        writeFile(p.join(overlay.path, 'dna', 'guides', 'a.md'), 'OVERLAY-2');
+        messages.clear();
+        await makeRunner(makeCmd()).run([
+          'sync',
+          '--target',
+          target.path,
+          '--no-install',
+        ]);
+
+        expect(
+          messages.any((m) => m.contains('Reusing overlay')),
+          isTrue,
+        );
+        expect(
+          File(p.join(target.path, 'dna', 'guides', 'a.md')).readAsStringSync(),
+          'OVERLAY-2',
+        );
+      });
+
+      test('--check detects an overlay update via gitLsRemote', () async {
+        writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'BASE');
+
+        Future<void> cloner(String u, Directory dest) async {
+          writeFile(p.join(dest.path, 'dna', 'guides', 'a.md'), 'OVERLAY');
+        }
+
+        Future<String?> revParse(Directory dir) async => 'sha-old';
+        Future<String?> lsRemote(String url) async => 'sha-new';
+
+        await makeRunner(
+          makeCmd(gitCloner: cloner, gitRevParse: revParse),
+        ).run([
+          'sync',
+          '--target',
+          target.path,
+          '--no-install',
+          'https://example.com/x.git',
+        ]);
+
+        await expectLater(
+          makeRunner(
+            makeCmd(gitCloner: cloner, gitLsRemote: lsRemote),
+          ).run([
+            'sync',
+            '--target',
+            target.path,
+            '--check',
+          ]),
+          throwsA(isA<Exception>()),
+        );
+        expect(
+          messages.any((m) => m.contains('overlay has new commits')),
+          isTrue,
+        );
+      });
+
+      test('--check reports when gitLsRemote cannot resolve overlay', () async {
+        writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'BASE');
+
+        Future<void> cloner(String u, Directory dest) async {
+          writeFile(p.join(dest.path, 'dna', 'guides', 'a.md'), 'OVERLAY');
+        }
+
+        Future<String?> revParse(Directory dir) async => 'sha-old';
+        Future<String?> lsRemoteNull(String url) async => null;
+
+        await makeRunner(
+          makeCmd(gitCloner: cloner, gitRevParse: revParse),
+        ).run([
+          'sync',
+          '--target',
+          target.path,
+          '--no-install',
+          'https://example.com/x.git',
+        ]);
+
+        await expectLater(
+          makeRunner(
+            makeCmd(gitCloner: cloner, gitLsRemote: lsRemoteNull),
+          ).run([
+            'sync',
+            '--target',
+            target.path,
+            '--check',
+          ]),
+          throwsA(isA<Exception>()),
+        );
+        expect(
+          messages.any(
+            (m) => m.contains('cannot resolve remote HEAD of overlay'),
+          ),
+          isTrue,
+        );
+      });
+
+      test('--check detects local overlay content changes', () async {
+        writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'BASE');
+
+        final overlay = Directory(p.join(tmp.path, 'overlay'))..createSync();
+        writeFile(p.join(overlay.path, 'dna', 'guides', 'a.md'), 'OVERLAY-1');
+
+        await makeRunner(makeCmd()).run([
+          'sync',
+          '--target',
+          target.path,
+          '--no-install',
+          overlay.path,
+        ]);
+
+        writeFile(p.join(overlay.path, 'dna', 'guides', 'a.md'), 'OVERLAY-2');
+
+        await expectLater(
+          makeRunner(makeCmd()).run([
+            'sync',
+            '--target',
+            target.path,
+            '--check',
+          ]),
+          throwsA(isA<Exception>()),
+        );
+        expect(
+          messages.any((m) => m.contains('local overlay has changed')),
+          isTrue,
+        );
+      });
+
+      test('--check reports when local overlay path no longer exists',
+          () async {
+        writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'BASE');
+
+        final overlay = Directory(p.join(tmp.path, 'overlay'))..createSync();
+        writeFile(p.join(overlay.path, 'dna', 'guides', 'a.md'), 'OVERLAY');
+
+        await makeRunner(makeCmd()).run([
+          'sync',
+          '--target',
+          target.path,
+          '--no-install',
+          overlay.path,
+        ]);
+
+        overlay.deleteSync(recursive: true);
+
+        await expectLater(
+          makeRunner(makeCmd()).run([
+            'sync',
+            '--target',
+            target.path,
+            '--check',
+          ]),
+          throwsA(isA<Exception>()),
+        );
+        expect(
+          messages.any((m) => m.contains('overlay path no longer exists')),
+          isTrue,
+        );
+      });
+
+      test('--check passes when overlay SHA matches stored commit', () async {
+        writeFile(p.join(pkgDna.path, 'guides', 'a.md'), 'BASE');
+
+        Future<void> cloner(String u, Directory dest) async {
+          writeFile(p.join(dest.path, 'dna', 'guides', 'a.md'), 'OVERLAY');
+        }
+
+        Future<String?> revParse(Directory dir) async => 'sha-stable';
+        Future<String?> lsRemote(String url) async => 'sha-stable';
+
+        await makeRunner(
+          makeCmd(gitCloner: cloner, gitRevParse: revParse),
+        ).run([
+          'sync',
+          '--target',
+          target.path,
+          '--no-install',
+          'https://example.com/x.git',
+        ]);
+
+        messages.clear();
+        await makeRunner(
+          makeCmd(gitCloner: cloner, gitLsRemote: lsRemote),
+        ).run([
+          'sync',
+          '--target',
+          target.path,
+          '--check',
+        ]);
+        expect(messages.last, contains('up to date'));
+      });
     });
 
     // -------------------------------------------------------------------------
@@ -727,7 +1038,10 @@ void main() {
         expect(Sync.expandShorthand('owner/gg_foo'), isNull);
         expect(Sync.expandShorthand('./gg_foo'), isNull);
         expect(Sync.expandShorthand('gg_foo/sub'), isNull);
-        expect(Sync.expandShorthand('git@github.com:ggsuite/gg_foo.git'), isNull);
+        expect(
+          Sync.expandShorthand('git@github.com:ggsuite/gg_foo.git'),
+          isNull,
+        );
         expect(Sync.expandShorthand('https://x/gg_foo.git'), isNull);
         expect(Sync.expandShorthand('C:\\gg_foo'), isNull);
         // Whitespace.

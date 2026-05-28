@@ -12,6 +12,8 @@ import 'package:gg_log/gg_log.dart';
 import 'package:interact/interact.dart' as interact;
 import 'package:path/path.dart' as p;
 
+import '../util/dna_hash.dart';
+import '../util/dna_manifest.dart';
 import 'apply_conventions.dart';
 import 'install_skills.dart';
 
@@ -25,6 +27,15 @@ typedef YesNoSelector = bool Function(String prompt);
 /// Clones the git repo at [url] into [dest]. Used by [Sync] when the overlay
 /// argument is a git URL. Injected so tests can stub the network call.
 typedef GitCloner = Future<void> Function(String url, Directory dest);
+
+/// Reads the current commit SHA of the git repository at [dir]. Used by
+/// [Sync] after a clone to capture the overlay's exact revision. Returns
+/// `null` when the directory is not a git repo.
+typedef GitRevParse = Future<String?> Function(Directory dir);
+
+/// Resolves the remote HEAD commit SHA of the git repo at [url] without
+/// cloning. Used by [Sync] during `--check` to detect overlay updates.
+typedef GitLsRemote = Future<String?> Function(String url);
 
 /// Mirrors the `dna/` folder shipped with `gg_dna` into the consuming
 /// repository. When an overlay repo (local path or git URL) is passed as a
@@ -53,9 +64,13 @@ class Sync extends Command<dynamic> {
     PackageRootResolver? packageRootResolver,
     YesNoSelector? selector,
     GitCloner? gitCloner,
+    GitRevParse? gitRevParse,
+    GitLsRemote? gitLsRemote,
   })  : _packageRootResolver = packageRootResolver ?? _defaultPackageRoot,
         _selector = selector ?? _defaultSelector,
-        _gitCloner = gitCloner ?? _defaultGitCloner {
+        _gitCloner = gitCloner ?? _defaultGitCloner,
+        _gitRevParse = gitRevParse ?? _defaultGitRevParse,
+        _gitLsRemote = gitLsRemote ?? _defaultGitLsRemote {
     argParser
       ..addOption(
         'source',
@@ -90,6 +105,8 @@ class Sync extends Command<dynamic> {
   final PackageRootResolver _packageRootResolver;
   final YesNoSelector _selector;
   final GitCloner _gitCloner;
+  final GitRevParse _gitRevParse;
+  final GitLsRemote _gitLsRemote;
 
   /// Subdirectory inside `<target>/dna/agents/skills` discovered for the
   /// install-skills prompt phase.
@@ -122,11 +139,15 @@ class Sync extends Command<dynamic> {
 
   @override
   Future<void> run() async {
-    final sourceDna = await _resolveSourceDna(argResults!['source'] as String?);
+    final packageRoot = await _packageRootResolver();
+    final sourceDna = _resolveSourceDna(
+      argResults!['source'] as String?,
+      packageRoot,
+    );
     final target = _resolveTarget(argResults!['target'] as String?);
     final checkOnly = argResults!['check'] as bool;
     final noInstall = argResults!['no-install'] as bool;
-    final overlayArg = _readOverlayArg(argResults!.rest);
+    var overlayArg = _readOverlayArg(argResults!.rest);
 
     if (!sourceDna.existsSync()) {
       throw UsageException(
@@ -145,8 +166,18 @@ class Sync extends Command<dynamic> {
     final dnaDir = Directory(p.join(target.path, 'dna'));
 
     if (checkOnly) {
-      _check(sourceDna, dnaDir);
+      await _check(sourceDna, dnaDir, packageRoot);
       return;
+    }
+
+    // Auto-reuse the overlay stored in the existing manifest when the user
+    // did not pass one explicitly.
+    if (overlayArg == null) {
+      final existing = DnaManifest.read(dnaDir);
+      if (existing?.overlay != null) {
+        overlayArg = existing!.overlay;
+        ggLog('Reusing overlay from .dna.json: $overlayArg');
+      }
     }
 
     // Base sync: wipe <target>/dna and copy <source>/dna fresh.
@@ -156,26 +187,47 @@ class Sync extends Command<dynamic> {
     copyDirectory(sourceDna, dnaDir);
     ggLog('Synced ${sourceDna.path} -> ${dnaDir.path}.');
 
+    final baseHash = hashDnaDirectory(sourceDna);
+
+    String? overlayCommit;
+    String? overlayHash;
+
     // Overlay: merge <overlay>/dna on top without wiping the target first.
     if (overlayArg != null) {
       Directory? cleanup;
       try {
-        final (overlayDna, tmp) = await _resolveOverlayDna(overlayArg);
-        cleanup = tmp;
-        if (!overlayDna.existsSync()) {
+        final resolved = await _resolveOverlayDna(overlayArg);
+        cleanup = resolved.cleanup;
+        if (!resolved.dna.existsSync()) {
           throw UsageException(
-            'Overlay does not contain a dna/ folder: ${overlayDna.path}',
+            'Overlay does not contain a dna/ folder: ${resolved.dna.path}',
             usage,
           );
         }
-        copyDirectory(overlayDna, dnaDir);
-        ggLog('Overlayed ${overlayDna.path} -> ${dnaDir.path}.');
+        copyDirectory(resolved.dna, dnaDir);
+        ggLog('Overlayed ${resolved.dna.path} -> ${dnaDir.path}.');
+        overlayHash = hashDnaDirectory(resolved.dna);
+        if (resolved.cleanup != null) {
+          // Cloned overlay: capture the commit SHA.
+          overlayCommit = await _gitRevParse(resolved.cleanup!);
+        }
       } finally {
         if (cleanup != null && cleanup.existsSync()) {
           cleanup.deleteSync(recursive: true);
         }
       }
     }
+
+    final manifest = DnaManifest(
+      overlay: overlayArg,
+      overlayCommit: overlayCommit,
+      overlayHash: overlayHash,
+      baseVersion: readPackageVersion(packageRoot),
+      baseHash: baseHash,
+      hash: hashDnaDirectory(dnaDir),
+    );
+    manifest.write(dnaDir);
+    ggLog('Wrote ${p.join(dnaDir.path, dnaManifestFilename)}.');
 
     if (noInstall) {
       return;
@@ -233,23 +285,9 @@ class Sync extends Command<dynamic> {
   /// are never misclassified as a shorthand). A trailing `.git` is
   /// stripped before the URL is built, so callers can write either form.
   static String? expandShorthand(String arg) {
-    final name = arg.endsWith('.git')
-        ? arg.substring(0, arg.length - 4)
-        : arg;
+    final name = arg.endsWith('.git') ? arg.substring(0, arg.length - 4) : arg;
     if (!RegExp(r'^gg_[A-Za-z0-9._-]+$').hasMatch(name)) return null;
     return 'https://github.com/ggsuite/$name.git';
-  }
-
-  /// Returns a sorted list of relative file paths under [dir].
-  static List<String> _listFiles(Directory dir) {
-    final files = <String>[];
-    for (final entity in dir.listSync(recursive: true, followLinks: false)) {
-      if (entity is File) {
-        files.add(p.relative(entity.path, from: dir.path));
-      }
-    }
-    files.sort();
-    return files;
   }
 
   // ===========================================================================
@@ -269,9 +307,8 @@ class Sync extends Command<dynamic> {
     return arg;
   }
 
-  Future<Directory> _resolveSourceDna(String? raw) async {
-    final root =
-        (raw != null && raw.isNotEmpty) ? raw : await _packageRootResolver();
+  Directory _resolveSourceDna(String? raw, String packageRoot) {
+    final root = (raw != null && raw.isNotEmpty) ? raw : packageRoot;
     return Directory(p.join(root, 'dna'));
   }
 
@@ -297,7 +334,7 @@ class Sync extends Command<dynamic> {
   ///      independent of the current working directory.
   ///   2. Anything else recognised by [looksLikeGitUrl] — cloned.
   ///   3. Existing local directory — used as-is.
-  Future<(Directory dna, Directory? cleanup)> _resolveOverlayDna(
+  Future<({Directory dna, Directory? cleanup})> _resolveOverlayDna(
     String arg,
   ) async {
     final shorthand = expandShorthand(arg);
@@ -310,7 +347,7 @@ class Sync extends Command<dynamic> {
     }
     final local = Directory(arg);
     if (local.existsSync()) {
-      return (Directory(p.join(local.path, 'dna')), null);
+      return (dna: Directory(p.join(local.path, 'dna')), cleanup: null);
     }
     throw UsageException(
       'Overlay argument is neither a `gg_*` shorthand, an existing local '
@@ -322,11 +359,13 @@ class Sync extends Command<dynamic> {
   /// Clones [url] into a fresh temp directory and returns the resulting
   /// `dna/` directory plus the temp directory itself, so the caller can
   /// clean it up after the overlay has been applied.
-  Future<(Directory dna, Directory cleanup)> _cloneOverlay(String url) async {
+  Future<({Directory dna, Directory? cleanup})> _cloneOverlay(
+    String url,
+  ) async {
     final tmp = Directory.systemTemp.createTempSync('gg_dna_overlay_');
     ggLog('Cloning $url into ${tmp.path} …');
     await _gitCloner(url, tmp);
-    return (Directory(p.join(tmp.path, 'dna')), tmp);
+    return (dna: Directory(p.join(tmp.path, 'dna')), cleanup: tmp);
   }
 
   Future<void> _promptAndInstallSkills(Directory target) async {
@@ -406,23 +445,72 @@ class Sync extends Command<dynamic> {
     ]);
   }
 
-  void _check(Directory source, Directory dest) {
+  Future<void> _check(
+    Directory source,
+    Directory dest,
+    String packageRoot,
+  ) async {
     if (!dest.existsSync()) {
       ggLog('  - missing: ${dest.path}');
       throw Exception('dna/ out of date — run `gg_dna sync` to fix.');
     }
 
+    final manifest = DnaManifest.read(dest);
+    if (manifest == null) {
+      ggLog('  - missing: ${p.join(dest.path, dnaManifestFilename)}');
+      throw Exception(
+        'No .dna.json found — run `gg_dna sync` first.',
+      );
+    }
+
     final problems = <String>[];
-    final srcFiles = _listFiles(source);
-    final destFiles = _listFiles(dest);
-    if (!_listEquals(srcFiles, destFiles)) {
-      problems.add('file set differs: ${dest.path}');
-    } else {
-      for (final rel in srcFiles) {
-        final a = File(p.join(source.path, rel)).readAsBytesSync();
-        final b = File(p.join(dest.path, rel)).readAsBytesSync();
-        if (!_bytesEqual(a, b)) {
-          problems.add('out of date: ${p.join(dest.path, rel)}');
+
+    // 1) Local check: target/dna content must match the stored hash.
+    final localHash = hashDnaDirectory(dest);
+    if (localHash != manifest.hash) {
+      problems.add(
+        'local files modified since last sync '
+        '(${manifest.hash} -> $localHash)',
+      );
+    }
+
+    // 2) Source check: base hash must match.
+    final baseHashNow = hashDnaDirectory(source);
+    if (baseHashNow != manifest.baseHash) {
+      problems.add(
+        'base source has changed since last sync '
+        '(${manifest.baseHash} -> $baseHashNow)',
+      );
+    }
+
+    // 3) Overlay check: SHA for git overlays, hash for local overlays.
+    if (manifest.overlay != null) {
+      final overlay = manifest.overlay!;
+      final shorthand = expandShorthand(overlay);
+      final isGit = shorthand != null || looksLikeGitUrl(overlay);
+      if (isGit) {
+        final url = shorthand ?? overlay;
+        final sha = await _gitLsRemote(url);
+        if (sha == null) {
+          problems.add('cannot resolve remote HEAD of overlay: $url');
+        } else if (sha != manifest.overlayCommit) {
+          problems.add(
+            'overlay has new commits '
+            '(${manifest.overlayCommit} -> $sha)',
+          );
+        }
+      } else {
+        final local = Directory(p.join(overlay, 'dna'));
+        if (!local.existsSync()) {
+          problems.add('overlay path no longer exists: $overlay');
+        } else {
+          final overlayHashNow = hashDnaDirectory(local);
+          if (overlayHashNow != manifest.overlayHash) {
+            problems.add(
+              'local overlay has changed '
+              '(${manifest.overlayHash} -> $overlayHashNow)',
+            );
+          }
         }
       }
     }
@@ -436,22 +524,6 @@ class Sync extends Command<dynamic> {
       ggLog('  - $problem');
     }
     throw Exception('dna/ out of date — run `gg_dna sync` to fix.');
-  }
-
-  static bool _listEquals(List<String> a, List<String> b) {
-    if (a.length != b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
-  }
-
-  static bool _bytesEqual(List<int> a, List<int> b) {
-    if (a.length != b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
   }
 
   // coverage:ignore-start
@@ -497,6 +569,35 @@ class Sync extends Command<dynamic> {
         'git clone failed (exit ${result.exitCode}): ${result.stderr}',
       );
     }
+  }
+
+  /// Default `git rev-parse HEAD` inside [dir]. Returns the SHA, or `null`
+  /// when the call fails (e.g. the directory is not a git repo).
+  static Future<String?> _defaultGitRevParse(Directory dir) async {
+    final result = await Process.run(
+      'git',
+      ['-C', dir.path, 'rev-parse', 'HEAD'],
+      runInShell: true,
+    );
+    if (result.exitCode != 0) return null;
+    final sha = (result.stdout as String).trim();
+    return sha.isEmpty ? null : sha;
+  }
+
+  /// Default `git ls-remote <url> HEAD`. Returns the SHA, or `null` on
+  /// failure (network error, unauthenticated, etc.).
+  static Future<String?> _defaultGitLsRemote(String url) async {
+    final result = await Process.run(
+      'git',
+      ['ls-remote', url, 'HEAD'],
+      runInShell: true,
+    );
+    if (result.exitCode != 0) return null;
+    final out = (result.stdout as String).trim();
+    if (out.isEmpty) return null;
+    final firstLine = out.split('\n').first;
+    final firstToken = firstLine.split(RegExp(r'\s+')).first.trim();
+    return firstToken.isEmpty ? null : firstToken;
   }
   // coverage:ignore-end
 }

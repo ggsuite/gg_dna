@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- add dna sync manifest with hash/check support and overlay tracking
+
 ## [1.1.0] - 2026-05-26
 
 ### Added
@@ -17,4 +23,5 @@
 - migrate claude/ configs to agents/, update references throughout
 - Move dna files to dna folder
 
+[Unreleased]: https://github.com/ggsuite/gg_dna/compare/1.1.0...HEAD
 [1.1.0]: https://github.com/ggsuite/gg_dna/tag/%tag
